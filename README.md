@@ -9,7 +9,7 @@
   Self-hosted in one Docker container, reachable only over your tailnet.
 </p>
 
-<video src="https://github.com/user-attachments/assets/8f9c71f5-aa1e-487e-b191-5146ff0719c0" width="1280" height="800" title="discord-mcp"></video>
+<div align="center"><video src="https://github.com/user-attachments/assets/8f9c71f5-aa1e-487e-b191-5146ff0719c0" width="1280" height="800" title="discord-mcp"></video></div>
 
 ## Quick start
 
