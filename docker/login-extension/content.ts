@@ -1,14 +1,26 @@
 import type { LoginReport } from "../../src/lib/login-browser/report";
-import { LoginParsing } from "./parsing";
+import { type ElementLayout, LoginParsing } from "./parsing";
 import { LoginQr } from "./qr";
 
 let busy = false;
 let tokenSent = false;
 
-const hasCaptcha = (): boolean => [...document.querySelectorAll('iframe, [class*="captcha"], [data-hcaptcha-widget-id]')].some((element) => {
-  if (!LoginQr.visible(element)) return false;
-  return !(element instanceof HTMLIFrameElement) || /hcaptcha\.com|recaptcha|captcha/i.test(element.src + element.title);
-});
+const layoutOf = (element: Element): ElementLayout => {
+  const style = getComputedStyle(element);
+  const opacities: string[] = [];
+  for (let node: Element | null = element; node !== null; node = node.parentElement) opacities.push(getComputedStyle(node).opacity);
+  return {
+    rect: element.getBoundingClientRect(),
+    viewport: { width: window.innerWidth, height: window.innerHeight },
+    visibility: style.visibility,
+    display: style.display,
+    opacities,
+  };
+};
+
+// Only a rendered captcha frame counts. Discord's form and the provider's
+// hidden or off-screen frames appear before the challenge does.
+const hasCaptcha = (): boolean => [...document.querySelectorAll("iframe")].some((frame) => LoginParsing.isCaptchaFrame(frame.src) && LoginParsing.isShown(layoutOf(frame)));
 
 const scanned = (): LoginReport | null => {
   // Discord's CSS module suffixes vary. Limit name/avatar selectors to the QR

@@ -24,7 +24,7 @@ export const createHarness = (overrides: Partial<LoginBrowserDeps> = {}) => {
     save: async () => { operations.push("save"); return Result.ok(undefined); },
     now: () => now,
     idleMs: 60_000,
-    unknownMs: 5_000,
+    unknownMs: LoginBrowser.UNKNOWN_GRACE_MS,
     ...overrides,
   };
   const login = LoginBrowser.create(deps);

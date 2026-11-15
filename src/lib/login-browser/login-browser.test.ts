@@ -6,6 +6,7 @@ import { DiscordRest } from "@/lib/discord/rest";
 import { DiscordUser } from "@/lib/discord/user";
 import { VaultTesting } from "@/lib/vault/testing";
 import { BrowserProcess } from "./browser-process";
+import { LoginBrowser } from "./login-browser";
 import { createHarness, TEST_USER } from "./testing";
 
 const qr = { kind: "qr", url: "https://discord.com/ra/test_QR-123" };
@@ -31,19 +32,54 @@ describe("Discord browser login", () => {
     expect(JSON.stringify(await h.login.poll("123"))).not.toContain(token.token);
   });
 
-  test("captcha immediately shows the stream and unknown or missing reports do so after five seconds", async () => {
+  test("a visible captcha shows the stream at once; unknown screens wait out the grace period", async () => {
     const h = createHarness();
+    const grace = LoginBrowser.UNKNOWN_GRACE_MS;
+    expect(grace).toBeGreaterThanOrEqual(15_000);
     (await h.login.start("123", "light")).unwrap();
     (await h.login.report(h.secret(), qr)).unwrap();
     (await h.login.report(h.secret(), { kind: "unknown" })).unwrap();
+    h.advance(grace - 1);
+    (await h.login.report(h.secret(), { kind: "unknown" })).unwrap();
     expect(await h.login.poll("123")).toMatchObject({ stage: "qr" });
-    h.advance(5_001);
-    expect(await h.login.poll("123")).toEqual({ stage: "browser" });
+    h.advance(1);
+    expect(await h.login.poll("123")).toEqual({ stage: "browser", reason: "unknown" });
     (await h.login.report(h.secret(), scanned)).unwrap();
+    expect(await h.login.poll("123")).toMatchObject({ stage: "scanned" });
     (await h.login.report(h.secret(), { kind: "captcha" })).unwrap();
-    expect(await h.login.poll("123")).toEqual({ stage: "browser" });
+    expect(await h.login.poll("123")).toEqual({ stage: "browser", reason: "captcha" });
     (await h.login.report(h.secret(), token)).unwrap();
     expect(await h.login.poll("123")).toEqual({ stage: "loggedIn" });
+  });
+
+  test("brief unknown transitions between Discord screens never show the stream", async () => {
+    const h = createHarness();
+    (await h.login.start("123", "light")).unwrap();
+    for (let step = 0; step < 10; step++) {
+      (await h.login.report(h.secret(), step % 2 === 0 ? qr : scanned)).unwrap();
+      for (let second = 0; second < 8; second++) {
+        h.advance(1_000);
+        (await h.login.report(h.secret(), { kind: "unknown" })).unwrap();
+        expect((await h.login.poll("123")).stage).not.toBe("browser");
+      }
+    }
+    await h.login.stop("123");
+  });
+
+  test("a captcha keeps the stream while it is visible, and a missing extension shows it after the grace period", async () => {
+    const h = createHarness();
+    (await h.login.start("123", "light")).unwrap();
+    h.advance(LoginBrowser.UNKNOWN_GRACE_MS - 1);
+    expect(await h.login.poll("123")).toEqual({ stage: "starting" });
+    h.advance(1);
+    expect(await h.login.poll("123")).toEqual({ stage: "browser", reason: "unknown" });
+    (await h.login.report(h.secret(), { kind: "captcha" })).unwrap();
+    h.advance(LoginBrowser.UNKNOWN_GRACE_MS - 1);
+    (await h.login.report(h.secret(), { kind: "unknown" })).unwrap();
+    expect(await h.login.poll("123")).toEqual({ stage: "browser", reason: "captcha" });
+    (await h.login.report(h.secret(), qr)).unwrap();
+    expect(await h.login.poll("123")).toMatchObject({ stage: "qr" });
+    await h.login.stop("123");
   });
 
   test("repeated classified reports keep a valid QR visible", async () => {

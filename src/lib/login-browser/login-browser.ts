@@ -12,8 +12,16 @@ export type LoginBrowserDeps = {
   readonly save: (userId: string, login: { readonly token: string; readonly user: DiscordUser }, signal: AbortSignal) => Promise<Result<unknown, { readonly message: string }>>;
   readonly now: () => number;
   readonly idleMs: number;
+  /** How long no QR, scan or captcha may be seen before the live browser is shown. */
   readonly unknownMs: number;
 };
+
+/**
+ * Discord passes through unrecognized screens between QR, confirmation and
+ * login. Wait this long before showing the stream for them; a visible captcha
+ * shows it at once.
+ */
+const UNKNOWN_GRACE_MS = 15_000;
 
 type Active = {
   readonly userId: string;
@@ -102,7 +110,7 @@ const create = (deps: LoginBrowserDeps) => {
     poll: (userId: string): Promise<LoginView> => serial(async () => {
       if (state.kind === "settled" && state.expiresAt <= deps.now()) state = { kind: "idle" };
       if (state.kind === "idle" || state.userId !== userId) return { stage: "error", message: "The login browser is no longer open. Try again to start a fresh login." };
-      if (state.kind === "running" && deps.now() - state.lastClassifiedAt >= deps.unknownMs) state.view = { stage: "browser" };
+      if (state.kind === "running" && deps.now() - state.lastClassifiedAt >= deps.unknownMs) state.view = { stage: "browser", reason: "unknown" };
       return state.view;
     }),
     stop,
@@ -124,10 +132,11 @@ const create = (deps: LoginBrowserDeps) => {
           current.view = { stage: "scanned", user: { name: report.name, avatarUrl: report.avatarUrl } };
           return Result.ok(undefined);
         case "captcha":
-          current.view = { stage: "browser" };
+          current.lastClassifiedAt = deps.now();
+          current.view = { stage: "browser", reason: "captcha" };
           return Result.ok(undefined);
         case "unknown":
-          if (deps.now() - current.lastClassifiedAt >= deps.unknownMs) current.view = { stage: "browser" };
+          if (deps.now() - current.lastClassifiedAt >= deps.unknownMs) current.view = { stage: "browser", reason: "unknown" };
           return Result.ok(undefined);
         case "token": {
           // The one-time secret cannot submit a second token, even during verification.
@@ -144,4 +153,4 @@ const create = (deps: LoginBrowserDeps) => {
   } as const;
 };
 export type LoginBrowser = ReturnType<typeof create>;
-export const LoginBrowser = { create } as const;
+export const LoginBrowser = { create, UNKNOWN_GRACE_MS } as const;

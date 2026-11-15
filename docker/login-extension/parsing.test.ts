@@ -25,3 +25,34 @@ test("phone confirmation names are plain text and avatars must be on Discord's C
   expect(LoginParsing.scanned("Test User", "https://evil.test/avatar.png")).toBe(null);
   expect(LoginParsing.scanned("", "https://cdn.discordapp.com/embed/avatars/0.png")).toBe(null);
 });
+
+test("only hCaptcha or reCAPTCHA frames over HTTPS count as captchas", () => {
+  for (const src of [
+    "https://newassets.hcaptcha.com/captcha/v1/test/static/hcaptcha.html#frame=checkbox",
+    "https://hcaptcha.com/captcha",
+    "https://www.google.com/recaptcha/api2/anchor",
+    "https://www.recaptcha.net/recaptcha/api2/bframe",
+  ]) expect(LoginParsing.isCaptchaFrame(src)).toBe(true);
+  for (const src of ["", "about:blank", "http://newassets.hcaptcha.com/captcha", "https://hcaptcha.com.evil.test/captcha", "https://discord.com/login", "https://www.google.com/search?q=recaptcha", "https://evil.test/?hcaptcha.com"])
+    expect(LoginParsing.isCaptchaFrame(src)).toBe(false);
+});
+
+test("a captcha is shown only with a size, visible styles, opacity and a place in the viewport", () => {
+  const shown = {
+    rect: { width: 300, height: 80, top: 200, left: 100, bottom: 280, right: 400 },
+    viewport: { width: 1280, height: 720 },
+    visibility: "visible",
+    display: "block",
+    opacities: ["1", "1", "1"],
+  };
+  expect(LoginParsing.isShown(shown)).toBe(true);
+  expect(LoginParsing.isShown({ ...shown, rect: { ...shown.rect, width: 0, right: 100 } })).toBe(false);
+  expect(LoginParsing.isShown({ ...shown, rect: { ...shown.rect, height: 0, bottom: 200 } })).toBe(false);
+  expect(LoginParsing.isShown({ ...shown, visibility: "hidden" })).toBe(false);
+  expect(LoginParsing.isShown({ ...shown, display: "none" })).toBe(false);
+  expect(LoginParsing.isShown({ ...shown, opacities: ["1", "0", "1"] })).toBe(false);
+  expect(LoginParsing.isShown({ ...shown, opacities: ["1", "0.5"] })).toBe(true);
+  // hCaptcha parks its challenge frame off-screen until it is needed.
+  expect(LoginParsing.isShown({ ...shown, rect: { width: 400, height: 600, top: -10_000, left: 100, bottom: -9_400, right: 500 } })).toBe(false);
+  expect(LoginParsing.isShown({ ...shown, rect: { width: 400, height: 600, top: 100, left: 2_000, bottom: 700, right: 2_400 } })).toBe(false);
+});

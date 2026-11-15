@@ -57,7 +57,7 @@ const read = async (): Promise<string | null> => {
       if (parsed.success) return parsed.data;
     } catch {
       // Cross-origin pixels or an incomplete image cannot be decoded. The server
-      // shows the real browser if no known state arrives within five seconds.
+      // shows the real browser if no known state arrives within its grace period.
     }
   }
   return null;

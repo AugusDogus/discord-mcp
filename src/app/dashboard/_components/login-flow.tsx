@@ -100,7 +100,7 @@ export function LoginFlow() {
   return (
     <div className="flex flex-col gap-6">
       <PageTitle title={view.stage === "scanned" ? "Confirm on your phone" : view.stage === "browser" ? "Log in to Discord" : "Scan with Discord on your phone"}>
-        {view.stage === "scanned" ? "Approve the login in Discord." : view.stage === "browser" ? "Complete the login in the browser below, including any verification Discord asks for." : "Settings > Scan QR Code"}
+        {view.stage === "scanned" ? "Approve the login in Discord." : view.stage === "browser" ? (view.reason === "captcha" ? "Discord wants a captcha. Solve it below." : "Complete the login in the browser below, including any verification Discord asks for.") : "Settings > Scan QR Code"}
       </PageTitle>
       {view.stage === "error" ? (
         <>

@@ -28,7 +28,7 @@ const get = (): LoginBrowser => {
     }),
     now: Date.now,
     idleMs: 15 * 60_000,
-    unknownMs: 5_000,
+    unknownMs: LoginBrowser.UNKNOWN_GRACE_MS,
   });
   return global[key];
 };
