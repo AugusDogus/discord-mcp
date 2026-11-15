@@ -18,15 +18,8 @@ import { DiscordUser } from "./user";
  * `poll` about once a second.
  */
 
-export type LoginView =
-  | { readonly stage: "starting" }
-  | { readonly stage: "qr"; readonly url: string; readonly expiresAt: number }
-  | {
-      readonly stage: "scanned";
-      readonly user: { readonly name: string; readonly handle: string; readonly avatarUrl: string };
-    }
-  | { readonly stage: "loggedIn" }
-  | { readonly stage: "error"; readonly message: string };
+import type { LoginView } from "./login-view";
+export type { LoginView } from "./login-view";
 
 export type LoginSessionDeps = {
   /** One QR code's run, from connecting to its outcome (RemoteAuth.run in production). */

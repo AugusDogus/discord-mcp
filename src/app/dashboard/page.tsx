@@ -1,8 +1,11 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { AppShell } from "@/app/_components/ui";
+import { Alert, AppShell } from "@/app/_components/ui";
 import { requireCurrentUser } from "@/app/_lib/session";
 import { Env } from "@/lib/env";
+import { DiscordAccountStore } from "@/lib/discord/account-store";
+import { getDb } from "@/lib/db/client";
+import { LoginFlow } from "./_components/login-flow";
 import { Agents } from "./_components/agents";
 
 export const metadata: Metadata = { title: { absolute: "discord-mcp" } };
@@ -35,5 +38,8 @@ async function Identity() {
 
 async function Home() {
   const user = await requireCurrentUser();
+  const account = await DiscordAccountStore.credentials(getDb(), user.id);
+  if (account.isErr() && account.error._tag !== "DiscordAccountUnreadableError") return <Alert tone="danger">{account.error.message}</Alert>;
+  if (account.isErr() || account.value === null || account.value.record.status === "rejected") return <LoginFlow />;
   return <Agents userId={user.id} mcpUrl={Env.mcpResourceUrl()} />;
 }
