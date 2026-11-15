@@ -2,7 +2,7 @@ import { getDb } from "@/lib/db/client";
 import { DiscordAccountLease } from "./account-lease";
 import { DiscordAccountEndpoint } from "./account-endpoint";
 import { DiscordLogout } from "./logout";
-import { DiscordLogin } from "./login-session";
+import { LoginBrowserRuntime } from "@/lib/login-browser/runtime";
 import { RequestGuard } from "@/lib/http/request-guard";
 import { DiscordAccountStore } from "./account-store";
 import { DiscordAccountHealth } from "./account-health";
@@ -59,7 +59,7 @@ const accountAction = (request: Request, action: "logout" | "presence") =>
               credentials: (id) => DiscordAccountStore.credentials(getDb(), id),
               rest,
               stop: (id) => {
-                DiscordLogin.sessions().stop(id);
+                void LoginBrowserRuntime.get().stop(id);
                 sessions().stop(id);
               },
             },

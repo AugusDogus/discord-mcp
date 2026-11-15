@@ -1,14 +1,9 @@
 import { connection } from "next/server";
-import { DiscordLogin } from "@/lib/discord/login-session";
-import { LoginEndpoint } from "@/lib/discord/login-endpoint";
+import { LoginHttp } from "@/lib/login-browser/http";
+import { LoginBrowserRuntime } from "@/lib/login-browser/runtime";
 import { RequestGuard } from "@/lib/http/request-guard";
 
-async function handle(request: Request): Promise<Response> {
+export async function POST(request: Request): Promise<Response> {
   await connection();
-  return LoginEndpoint.handle(
-    { origin: RequestGuard.appOrigin(), session: RequestGuard.requireSession, sessions: DiscordLogin.sessions() },
-    request,
-  );
+  return LoginHttp.action({ origin: RequestGuard.appOrigin(), session: RequestGuard.requireSession, browser: LoginBrowserRuntime.get() }, request);
 }
-export const GET = handle;
-export const POST = handle;

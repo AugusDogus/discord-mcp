@@ -38,24 +38,6 @@ const fromApi = (value: unknown): DiscordUser | null => {
   return { id, username, globalName: global_name ?? null, discriminator, avatar: avatar ?? null };
 };
 
-/**
- * The remote-auth `encrypted_user_payload`, decrypted:
- * `id:discriminator:avatarHash:username`. Usernames cannot contain ":", but
- * the rest is joined back in case an old one does.
- */
-const fromRemoteAuthPayload = (payload: string): DiscordUser | null => {
-  const [id, discriminator, avatar, ...rest] = payload.split(":");
-  const username = rest.join(":");
-  if (id === undefined || !snowflake.safeParse(id).success || discriminator === undefined || username === "") return null;
-  return {
-    id,
-    username,
-    globalName: null,
-    discriminator,
-    avatar: avatar === undefined || avatar === "" || avatar === "0" ? null : avatar,
-  };
-};
-
 const CDN = "https://cdn.discordapp.com";
 
 /** The avatar image URL, or the default avatar Discord shows for this account. */
@@ -78,7 +60,7 @@ const handle = (user: DiscordUser): string =>
 
 export const DiscordUser = {
   fromApi,
-  fromRemoteAuthPayload,
+  ApiSchema,
   StoredSchema,
   avatarUrl,
   displayName,

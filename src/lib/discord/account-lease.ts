@@ -1,4 +1,4 @@
-/** Serializes one user's agent actions, QR saves, settings and logout in this single-process app. */
+/** Serializes one user's agent actions, login saves, settings and logout in this single-process app. */
 const create = () => {
   const tails = new Map<string, Promise<void>>();
   const run = async <T>(userId: string, action: () => Promise<T>): Promise<T> => {
