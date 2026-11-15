@@ -22,6 +22,8 @@ bun run build
 docker build -t discord-mcp:verify .
 ```
 
+`bun run demo:record` re-records the README demo into `.demo/discord-mcp.mp4` (not committed). It needs ffmpeg and `bunx playwright-core install chromium`, builds the app (`DEMO_SKIP_BUILD=1` reuses `.next`) and runs it on a throwaway database. The Discord login and phone are faked and the server is kept from contacting Discord; `scripts/demo/record.ts` lists what is real and how to publish the video.
+
 Run the Docker check when a daemon is available. Tests use `bun:test`, fake REST fetches, a fake browser launcher and extension reports, fake presence sessions and temporary SQLite databases with the real migrations. Clock injection covers presence expiry, active operations and the login stage timing (captcha and the 15-second unknown grace). HTTP MCP tests exercise tool discovery, schemas, annotations, scope challenges and confirmation guards. Logout tests cover remote failure, rejected tokens, cleanup, revoking only the logged-out account's grants and isolation between users. OAuth tests cover the approval page with zero, one and two accounts and grant binding. The migration test upgrades a database at the previous migration and checks the stored account and its grants survive. Startup tests verify secret persistence and permissions.
 
 TypeScript is strict. Keep expected failures as `better-result` values, validate external responses with Zod, and avoid unsafe assertions. For Next.js API changes, read the installed guides under `node_modules/next/dist/docs/` first.
@@ -44,6 +46,7 @@ TypeScript is strict. Keep expected failures as `better-result` values, validate
 | `src/lib/oauth/` | OAuth authorization server |
 | `src/app/dashboard/` | QR login, Add account, Accounts and Agents UI |
 | `docker/`, `Dockerfile`, `unraid/` | Standalone packaging |
+| `scripts/demo/` | README demo recorder (`bun run demo:record`) |
 
 The tool definitions were ported from [discord-selfbot-mcp](https://github.com/AugusDogus/discord-selfbot-mcp). Its always-connected selfbot client and local-file upload code are omitted. `discord.js-selfbot-v13` is no longer a dependency. `discord-protos` encodes only guild-folder updates; gateway sessions use Bun's built-in WebSocket client.
 
