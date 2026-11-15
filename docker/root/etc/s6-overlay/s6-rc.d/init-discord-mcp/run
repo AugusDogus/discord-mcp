@@ -1,0 +1,26 @@
+#!/usr/bin/with-contenv bash
+set -euo pipefail
+umask 077
+
+for discord_id in "${PUID:-1000}" "${PGID:-1000}"; do
+  case "$discord_id" in
+    ''|*[!0-9]*) echo '[discord-mcp] PUID and PGID must be numeric IDs.' >&2; exit 1 ;;
+  esac
+done
+if [ "$(id -u abc)" -eq 0 ]; then
+  echo '[discord-mcp] Choose a non-root PUID to run the app.' >&2
+  exit 1
+fi
+
+# init-adduser in the Selkies base has already applied PUID/PGID to abc.
+install -d -m 700 -o abc -g abc /data /data/secrets
+chown -R abc:abc /data
+
+# RAM only, including the private extension config. Clear leftovers on boot.
+rm -rf /dev/shm/discord-mcp-browser
+install -d -m 700 -o abc -g abc /dev/shm/discord-mcp-browser
+
+# The stream's WebSocket accepts only this app's public origin.
+if [ -n "${DISCORD_MCP_URL:-}" ]; then
+  printf '%s' "${DISCORD_MCP_URL%/}" > /run/s6/container_environment/SELKIES_ALLOWED_ORIGINS
+fi

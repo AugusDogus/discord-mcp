@@ -12,5 +12,8 @@ if [ -z "${BETTER_AUTH_SECRET:-}" ]; then
 fi
 export KEY_PEPPER BETTER_AUTH_SECRET
 bun migrate.mjs
-export HOSTNAME=0.0.0.0 PORT=3000
+# The Selkies desktop's Wayland display. Next is reachable only through nginx.
+export WAYLAND_DISPLAY=wayland-0 DISPLAY=:0
+export HOSTNAME=127.0.0.1 PORT=3100
+# Discord's gateway requires Bun, including in the standalone server.
 exec bun server.js

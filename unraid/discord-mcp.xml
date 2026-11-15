@@ -14,7 +14,7 @@
   <WebUI/>
   <TemplateURL/>
   <Icon/>
-  <ExtraParams>-p 127.0.0.1:6480:3000</ExtraParams>
+  <ExtraParams>--shm-size=1g -p 127.0.0.1:6480:3000</ExtraParams>
   <PostArgs/>
   <CPUset/>
   <Requires>The host Tailscale plugin, MagicDNS and HTTPS certificates, a local image named discord-mcp:local, and a Docker network named discord-mcp.</Requires>
