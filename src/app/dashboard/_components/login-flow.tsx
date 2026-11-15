@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useLayoutEffect, useState } from "react";
 import QRCode from "qrcode";
 import { Actions, Alert, buttonClass, PageTitle, Spinner } from "@/app/_components/ui";
+import { PollFailures } from "@/app/dashboard/_lib/poll-failures";
 import { LoginView } from "@/lib/login-browser/login-view";
 
 function Qr({ url }: { url: string }) {
@@ -53,8 +54,18 @@ export function LoginFlow({ next, cancelHref }: { next: string; cancelHref: stri
     let polling = false;
     let finished = false;
     let starting = true;
+    let failures: PollFailures = PollFailures.none;
+    /** A failed check: wait it out unless it keeps failing while the page is visible. */
+    const failed = (message: string) => {
+      const recorded = PollFailures.record(failures, Date.now(), document.visibilityState);
+      failures = recorded.failures;
+      if (!recorded.giveUp) return;
+      finished = true;
+      setView({ stage: "error", message });
+    };
     const poll = async () => {
-      if (polling || finished || controller.signal.aborted) return;
+      // A hidden tab (you are approving in the Discord app) checks again when it returns.
+      if (polling || finished || controller.signal.aborted || document.visibilityState === "hidden") return;
       polling = true;
       try {
         const response = await fetch("/api/discord/login", {
@@ -67,7 +78,10 @@ export function LoginFlow({ next, cancelHref }: { next: string; cancelHref: stri
           signal: controller.signal,
         });
         if (controller.signal.aborted) return;
+        // The tailnet proxy or a waking phone can briefly fail requests.
+        if (response.status >= 502 && response.status <= 504) return failed("Could not reach discord-mcp. Check your connection and try again.");
         starting = false;
+        failures = PollFailures.none;
         if (!response.ok) {
           finished = true;
           setView({ stage: "error", message: await readError(response) });
@@ -89,20 +103,20 @@ export function LoginFlow({ next, cancelHref }: { next: string; cancelHref: stri
           } else window.location.replace(next);
         }
       } catch {
-        if (!controller.signal.aborted) {
-          finished = true;
-          setView({ stage: "error", message: "Could not reach discord-mcp. Check your connection and try again." });
-        }
+        if (!controller.signal.aborted) failed("Could not reach discord-mcp. Check your connection and try again.");
       } finally { polling = false; }
     };
     void poll();
     const timer = setInterval(() => { void poll(); }, 1_000);
     const close = () => { void stop(); };
+    const returned = () => { if (document.visibilityState === "visible") void poll(); };
     window.addEventListener("pagehide", close);
+    document.addEventListener("visibilitychange", returned);
     return () => {
       controller.abort();
       clearInterval(timer);
       window.removeEventListener("pagehide", close);
+      document.removeEventListener("visibilitychange", returned);
       void stop();
     };
   }, [attempt, next, router]);
