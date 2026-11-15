@@ -3,8 +3,7 @@ import { Suspense } from "react";
 import { Alert, AppShell } from "@/app/_components/ui";
 import { requireCurrentUser } from "@/app/_lib/session";
 import { Env } from "@/lib/env";
-import { DiscordAccountStore } from "@/lib/discord/account-store";
-import { getDb } from "@/lib/db/client";
+import { DiscordRuntime } from "@/lib/discord/runtime";
 import { LoginFlow } from "./_components/login-flow";
 import { Agents } from "./_components/agents";
 
@@ -38,8 +37,8 @@ async function Identity() {
 
 async function Home() {
   const user = await requireCurrentUser();
-  const account = await DiscordAccountStore.credentials(getDb(), user.id);
-  if (account.isErr() && account.error._tag !== "DiscordAccountUnreadableError") return <Alert tone="danger">{account.error.message}</Alert>;
-  if (account.isErr() || account.value === null || account.value.record.status === "rejected") return <LoginFlow />;
+  const account = await DiscordRuntime.health(user.id);
+  if (account.isErr()) return <Alert tone="danger">{account.error.message}</Alert>;
+  if (account.value.kind === "login") return <LoginFlow />;
   return <Agents userId={user.id} mcpUrl={Env.mcpResourceUrl()} />;
 }
