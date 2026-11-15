@@ -23,7 +23,9 @@ docker compose up -d --build
 tailscale serve --bg --https=6443 http://127.0.0.1:6480
 ```
 
-Set `DISCORD_MCP_URL` to `https://<machine>.<tailnet>.ts.net:6443`. Open it from a device signed in as a tailnet user. Your Tailscale identity signs you into the app. Scan the Discord QR from **Settings > Scan QR Code** on your phone, then confirm. Discord refreshes its QR in the real browser, and the page renders the decoded URL as a crisp SVG. If Discord shows a captcha or an unrecognized screen, the same stage shows the live browser so you can finish the login yourself.
+Set `DISCORD_MCP_URL` to `https://<machine>.<tailnet>.ts.net:6443`. Open it from a device signed in as a tailnet user. Your Tailscale identity signs you into the app. Scan the Discord QR from **Settings > Scan QR Code** on your phone, then confirm. Discord refreshes its QR in the real browser, and the page renders the decoded URL as a crisp SVG. When Discord shows a captcha, the same stage switches to the live browser with "Discord wants a captcha. Solve it below." Solve it there and the login continues. The switch waits until the captcha is actually visible, so Discord's email and password form is not shown while the captcha loads. If no QR, confirmation or captcha is recognized for 15 seconds, the stage also shows the live browser so you can finish the login yourself.
+
+To add another Discord account, choose **Add account** on the dashboard and log in the same way.
 
 Compose publishes only `127.0.0.1:6480` and creates a separate Docker network. Sign-in trusts the identity headers set by Tailscale Serve. Keep direct access restricted to trusted host processes and containers. Publishing on your LAN or attaching untrusted containers to this network lets them impersonate a tailnet user. Use Serve, keep Funnel off, and keep the app's port off other interfaces.
 
@@ -94,7 +96,8 @@ For Unraid, rebuild `discord-mcp:local` and recreate the container with the same
 | No Tailscale identity at sign-in | Open the Serve HTTPS address from a device signed in as a user; tagged devices cannot sign in |
 | Address is unreachable | Check `tailscale serve status`, MagicDNS, HTTPS certificates and tailnet access rules for port 6443 |
 | Startup cannot write secrets or SQLite | Check the `/data` mount, available space and PUID/PGID ownership |
-| Dashboard returns to a QR | Discord rejected the stored token, or the server key no longer opens it; scan and confirm again |
+| An account is marked signed out by Discord | Discord rejected its token; choose **Add account** and log in to that account again. Its agents reconnect automatically |
+| An account shows as an unreadable login | The server key no longer opens it; log it out, then add the account again and reconnect its agents |
 | Discord is temporarily unavailable | Reads report the failure; the account is kept and health is marked unknown. Retry later |
 | An interaction opens a modal | Finish it in Discord; this app submits interactions and exposes message results through fetch tools |
 | Discord asks for account verification or a CAPTCHA during login | Complete it in the streamed browser on the login page; a human solves it on discord.com |

@@ -2,7 +2,7 @@
 
 Discord prohibits user-account automation, and using this app can get the account suspended.
 
-This app is for its owner's self-hosted account on a private tailnet. Tailscale Serve supplies the browser identity. Better Auth issues the browser session, and the app's OAuth server grants agents separate `discord:read` and `discord:write` access. Browser login start, polling, cancellation and account changes require a signed-in session and the app's exact origin. The dashboard cannot be framed.
+This app is for its owner's self-hosted accounts on a private tailnet. Tailscale Serve supplies the browser identity. Better Auth issues the browser session, and the app's OAuth server grants agents separate `discord:read` and `discord:write` access. Browser login start, polling, cancellation and account changes require a signed-in session and the app's exact origin. The dashboard cannot be framed.
 
 ## Stored data and keys
 
@@ -20,7 +20,7 @@ Each login gets a private profile in `/dev/shm` and a private copy of the bundle
 
 The content script reads `localStorage.getItem("token")` in its isolated world after Discord reaches `/channels` or the login page disappears, then parses the JSON string. This implementation does not read LevelDB. Before saving, the existing REST client verifies the token with `GET /api/v9/users/@me`. A 401 or a storage failure reports an error and keeps the previous account. Only a verified token is sealed by `DiscordAccountStore`.
 
-QR reports must match `https://discord.com/ra/` followed by URL-safe identifier characters. Scanned avatars must be HTTPS on `cdn.discordapp.com`. The app renders its own QR SVG and plain name text; no Discord page markup is injected into the dashboard. Unrecognized or missing reports show the live stream after five seconds; detected captchas show it immediately.
+QR reports must match `https://discord.com/ra/` followed by URL-safe identifier characters. Scanned avatars must be HTTPS on `cdn.discordapp.com`. The app renders its own QR SVG and plain name text; no Discord page markup is injected into the dashboard. A captcha shows the live stream as soon as an hCaptcha or reCAPTCHA frame is visible (nonzero size, not hidden or transparent, inside the viewport). Unrecognized or missing reports show it after 15 seconds.
 
 The browser profile, login cookies, password storage, crash data, caches and extension secret stay in RAM and are wiped after completion, cancellation, failure or timeout, and at container startup. A failed cleanup blocks another launch until resolved. The host may page RAM to swap, so RAM-only storage is not a substitute for host disk encryption. The sealed token and minimal account profile remain in the database as described above. The live QR reader was verified in the container. Scan confirmation, captcha detection and isolated-world token capture after approval still require deployment validation; see [Development](development.md).
 
@@ -34,11 +34,13 @@ A complete data copy can also forge access tokens for existing grants. A single 
 
 ## Logout and recovery
 
-Log out cancels the login browser and closes gateway sessions, waits behind any active agent action, POSTs `/api/v9/auth/logout` with the Discord token, and then deletes the local account row, per-user key, OAuth credentials and grants in one database batch. Other users' accounts stay intact. A 401 during logout permits cleanup because the token is already rejected. Other remote failures preserve the local rows for retry. A cleanup failure reports that local data remains so the user can retry.
+Each stored Discord account has its own row, sealed token, profile, health and presence setting. All of a user's accounts share that user's DEK. Each OAuth grant is bound to one account, and tool calls act only as that account.
+
+Log out applies to one account. It closes that account's gateway session, waits behind any active agent action, POSTs `/api/v9/auth/logout` with its Discord token, and then in one database batch deletes the account row and revokes the grants bound to it. Revoked grants stop their access tokens, refresh tokens and codes, and report that the account was logged out so the user reconnects in their MCP client. Logging out the user's last account also deletes their server key. Other accounts and other users' accounts stay intact. A 401 during logout permits cleanup because the token is already rejected. A login the server key can no longer open is removed locally without a Discord request, since its token cannot be read. Other remote failures preserve the local rows for retry. A cleanup failure reports that local data remains so the user can retry.
 
 Browser login saves and agent actions share the account lease with logout. Cancellation immediately invalidates the browser report secret and aborts a save waiting for the lease, and an agent waiting behind logout rechecks its grant before loading credentials. This lease and the browser/gateway managers are in memory: run one server process against a data volume. Multiple replicas sharing the database are unsupported.
 
-Ordinary re-login keeps existing grants and the presence preference. If the server key is missing or changed, scanning replaces the unreadable Discord login. Rotating `KEY_PEPPER` also invalidates OAuth credentials, so agents need new approval. Losing only the browser signing secret requires browser sign-in again.
+Logging in to an account that is already stored refreshes its row, keeping its grants and presence preference. If the server key is missing or changed, logging in to an account again replaces its unreadable login; other unreadable logins can be logged out from the dashboard. Rotating `KEY_PEPPER` also invalidates OAuth credentials, so agents need new approval. Losing only the browser signing secret requires browser sign-in again.
 
 ## Network boundary
 

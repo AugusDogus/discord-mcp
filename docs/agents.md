@@ -33,17 +33,27 @@ Cursor, in its MCP configuration:
 
 For OpenCode, use a remote MCP entry with this URL and complete its OAuth flow. For a self-hosted Executor or another MCP gateway, add the same URL as a remote server from a tailnet-connected installation. Client setup examples are configuration references; live client authorization has not been verified in this implementation pass.
 
-The dashboard lists authorized clients under **Agents**. **Revoke** disconnects one client. **Log out** signs out the stored Discord session and removes every agent grant. Reconnecting after logout requires new approval.
+The dashboard lists authorized clients under **Agents**, each with the Discord account it uses. **Revoke** disconnects one client. **Log out** on an account signs that Discord session out and disconnects the agents that use it; other accounts and their agents are not affected. Reconnecting after logout requires new approval.
+
+## Several Discord accounts
+
+Log in to each account from the dashboard: **Add account** opens the same browser login. Logging in to an account that is already stored refreshes its login instead of adding it twice, and keeps its agents connected.
+
+Every agent connection (one OAuth approval) acts as exactly one Discord account. Tools have no account argument. When you have more than one account, the approval page asks which account the connection uses; with one, it uses that account without asking. With none, it sends you to log in first and then returns to the approval.
+
+To reach two accounts from Executor, add discord-mcp as an account twice. Each time, approve in the browser and pick a different Discord account on the approval page. Executor then lets a call choose between its two discord-mcp accounts. Other clients work the same way: connect the server once per Discord account.
+
+If you log out an account, its connections stop working. Their requests fail with an error saying the account was logged out of discord-mcp. Reconnect discord-mcp in that MCP client and pick an account on the approval page.
 
 ## Scopes and tools
 
 `discord:read` permits all read tools. `discord:write` permits actions as your account. Scopes are checked both at the HTTP layer and inside each tool. A write grant does not imply read access. Tools with internal reads still require only their declared write scope, for example checking ownership before deleting a message.
 
-Call `get_status` first. It returns `kind: "login"` when scanning is needed. A connected account reports `health: "verified"` or `"unknown"`, its profile, presence preference and last verification time. A `/users/@me` check is cached for 60 seconds. A 401 marks the login rejected, closes any gateway session, and causes the dashboard to return to QR login. Other failures preserve the account and report unknown health.
+Call `get_status` first. It reports the connection's own Discord account. It returns `kind: "login"` when that account needs to be logged in again (with the stored account when Discord rejected its token). A connected account reports `health: "verified"` or `"unknown"`, its profile, presence preference and last verification time. A `/users/@me` check is cached for 60 seconds. A 401 marks that account's login rejected and closes its gateway session; the dashboard marks the account signed out until you log in to it again with **Add account**, which restores its connections. Other failures preserve the account and report unknown health.
 
 | Tool | Scope | Purpose |
 | --- | --- | --- |
-| `get_status` | read | Account and cached token health |
+| `get_status` | read | The connection's account and cached token health |
 | `discord_get_account` | read | Stored account profile and presence preference |
 | `discord_list_guilds` | read | Paginated guild inventory |
 | `discord_list_guild_channels` | read | Channels in a guild |
@@ -80,6 +90,6 @@ All reads use REST with the stored token. They never open a gateway, including a
 
 Slash commands, buttons and select menus need a gateway session ID. They open a session on demand, identify as `invisible`, and disconnect after two minutes without an active action. Closing the page is not required. The app does not keep a background Discord connection alive after that deadline.
 
-**Show me online when an agent sends or reacts** is off by default. When enabled, an agent write opens or reuses an `online` session for three idle minutes. This applies to all write tools, including edits, thread changes and guild organization. Turning the setting off immediately disconnects the app's existing session. The app never updates your saved Discord status setting.
+**Show me online when an agent sends or reacts** is a setting on each account and is off by default. When enabled, an agent write opens or reuses an `online` session for three idle minutes. This applies to all write tools, including edits, thread changes and guild organization. Turning the setting off immediately disconnects the app's existing session. The app never updates your saved Discord status setting.
 
 How Discord merges presence from multiple simultaneous sessions has not been verified. Invisible interaction sessions may affect what your other clients display. The default path stays REST-only whenever possible so ordinary reads and writes do not contribute a gateway presence. Only your own clients contribute presence during those REST operations. Interaction transport and Discord's current private API behavior have been tested against fakes, not a live account.

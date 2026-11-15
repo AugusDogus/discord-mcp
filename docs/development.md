@@ -22,7 +22,7 @@ bun run build
 docker build -t discord-mcp:verify .
 ```
 
-Run the Docker check when a daemon is available. Tests use `bun:test`, fake REST fetches, a fake browser launcher and extension reports, fake presence sessions and temporary SQLite databases with the real migrations. Clock injection covers presence expiry and active operations. HTTP MCP tests exercise tool discovery, schemas, annotations, scope challenges and confirmation guards. Logout tests cover remote failure, rejected tokens, cleanup and isolation between users. Startup tests verify secret persistence and permissions.
+Run the Docker check when a daemon is available. Tests use `bun:test`, fake REST fetches, a fake browser launcher and extension reports, fake presence sessions and temporary SQLite databases with the real migrations. Clock injection covers presence expiry, active operations and the login stage timing (captcha and the 15-second unknown grace). HTTP MCP tests exercise tool discovery, schemas, annotations, scope challenges and confirmation guards. Logout tests cover remote failure, rejected tokens, cleanup, revoking only the logged-out account's grants and isolation between users. OAuth tests cover the approval page with zero, one and two accounts and grant binding. The migration test upgrades a database at the previous migration and checks the stored account and its grants survive. Startup tests verify secret persistence and permissions.
 
 TypeScript is strict. Keep expected failures as `better-result` values, validate external responses with Zod, and avoid unsafe assertions. For Next.js API changes, read the installed guides under `node_modules/next/dist/docs/` first.
 
@@ -32,7 +32,7 @@ TypeScript is strict. Keep expected failures as `better-result` values, validate
 | --- | --- |
 | `src/lib/login-browser/` | Exclusive browser lifecycle, validated reports, token verification and HTTP authorization |
 | `docker/login-extension/` | MV3 content script, service worker, QR decoder and pure parsing helpers |
-| `src/lib/discord/account-store.ts` | Sealed token/profile and presence preference |
+| `src/lib/discord/account-store.ts` | Each user's Discord accounts: sealed token/profile, presence preference, re-login refresh |
 | `src/lib/discord/rest.ts` | Token-authenticated HTTP requests and rejection handling |
 | `src/lib/discord/account-health.ts` | Cached `/users/@me` health |
 | `src/lib/discord/gateway.ts` / `presence.ts` | On-demand gateway and idle expiry |
@@ -42,7 +42,7 @@ TypeScript is strict. Keep expected failures as `better-result` values, validate
 | `src/lib/discord/account-lease.ts` / `logout.ts` | Per-user serialization and logout |
 | `src/lib/mcp/` | HTTP MCP tool definitions and scope guards |
 | `src/lib/oauth/` | OAuth authorization server |
-| `src/app/dashboard/` | QR login, Account and Agents UI |
+| `src/app/dashboard/` | QR login, Add account, Accounts and Agents UI |
 | `docker/`, `Dockerfile`, `unraid/` | Standalone packaging |
 
 The tool definitions were ported from [discord-selfbot-mcp](https://github.com/AugusDogus/discord-selfbot-mcp). Its always-connected selfbot client and local-file upload code are omitted. `discord.js-selfbot-v13` is no longer a dependency. `discord-protos` encodes only guild-folder updates; gateway sessions use Bun's built-in WebSocket client.
@@ -53,7 +53,7 @@ The browser login requires Linux Chromium, a Wayland desktop, Selkies and nginx.
 
 `bun run build:login-extension <output-directory>` bundles `content.ts` and `service-worker.ts` with `jsqr`, Zod and the shared report schema, and copies `manifest.json`. The image builds this into `/app/login-extension`. No secret is present in that bundle. Each launch copies it into the private RAM profile and writes a mode-0600 `config.json` containing the one-time secret. The extension has no externally connectable or web-accessible resources.
 
-The isolated content script inspects Discord every second. It rasterizes visible SVG/image QR artwork (or copies canvas pixels), decodes it with `jsqr`, and sends only the validated URL. Confirmation detection requires a phone prompt, a name and a Discord CDN avatar. Visible captcha frames or containers take priority. If the server sees no known state for five seconds, it shows the live streamed browser, including when extension loading or selectors fail.
+The isolated content script inspects Discord every second. It rasterizes visible SVG/image QR artwork (or copies canvas pixels), decodes it with `jsqr`, and sends only the validated URL. Confirmation detection requires a phone prompt, a name and a Discord CDN avatar. A captcha counts only once an HTTPS hCaptcha or reCAPTCHA iframe is visible: nonzero size, visible and displayed, nonzero opacity up its ancestors, and inside the viewport (hCaptcha parks hidden frames off-screen first). It takes priority, and the dashboard then shows the stream with one line above it. If the server sees no known state for 15 seconds, it shows the live streamed browser, including when extension loading or selectors fail, so brief transitions between Discord screens never show it.
 
 Token capture uses the content script's isolated-world `globalThis.localStorage.getItem("token")`, followed by JSON parsing. It runs after `/channels` is reached or the login page disappears. Discord deleting `window.localStorage` in the main world should not remove the isolated world's accessor, but token access after phone approval has not been checked against a live login here. There is no LevelDB fallback in this implementation. If this accessor stops working, update capture and its tests before relying on the image.
 
@@ -79,7 +79,7 @@ After building on the server:
 
 1. Confirm the image starts as the configured PUID/PGID, generates or reuses secrets, migrates successfully, and serves nginx on port 3000 while Bun listens only on `127.0.0.1:3100`.
 2. Confirm `/dev/shm` has 1 GiB available, the browser profile is created there with private permissions, and the browser follows the page's light/dark scheme.
-3. Open an unpaired dashboard. Check the crisp QR, scan-to-avatar transition, phone approval, and arrival at Account/Agents. If Discord asks for a captcha, solve it in the stream and confirm completion.
+3. Open an unpaired dashboard. Check the crisp QR, scan-to-avatar transition, phone approval, and arrival at Accounts/Agents. If Discord asks for a captcha, confirm the stream appears only once the captcha is visible, solve it and confirm completion. Add a second account and approve an agent for each.
 4. Check that signed-out users and another app user cannot fetch stream assets or upgrade its WebSocket, that another user receives a busy error during login, and that `/api/internal/login-report` returns 404 through nginx.
 5. Check that finishing, leaving the page, retrying and the 15-minute timeout close Chromium and remove the profile, including `config.json`. Confirm the saved account still works after a container restart.
 
