@@ -98,7 +98,7 @@ export function AccountRow({ account }: { account: AccountRowView }) {
   const notice = error ?? (account.kind === "connected" ? account.message : account.kind === "rejected" ? REJECTED_MESSAGE : account.message);
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-surface">
-      <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center">
+      <div className="flex items-center gap-4 p-4">
         <div className="flex min-w-0 flex-1 items-center gap-3">
           {account.kind === "unreadable" ? (
             <span aria-hidden className="size-10 shrink-0 rounded-full bg-surface-muted" />
@@ -123,16 +123,14 @@ export function AccountRow({ account }: { account: AccountRowView }) {
           </div>
         </div>
         {confirming ? null : (
-          <Actions>
-            <button
-              type="button"
-              disabled={pending}
-              className={buttonClass("ghost")}
-              onClick={() => setConfirming(true)}
-            >
-              Log out
-            </button>
-          </Actions>
+          <button
+            type="button"
+            disabled={pending}
+            className={`${buttonClass("ghost")} shrink-0`}
+            onClick={() => setConfirming(true)}
+          >
+            Log out
+          </button>
         )}
       </div>
       {confirming ? (
