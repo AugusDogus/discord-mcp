@@ -16,9 +16,12 @@ function Qr({ url }: { url: string }) {
     });
     return () => { stopped = true; };
   }, [url]);
+  // The code is a discord.com/ra link (validated server-side): on the phone itself, tapping it opens Discord.
   return image ? (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img src={image} alt="Scan this QR code in Discord" className="size-52 rounded-lg bg-white sm:size-60" />
+    <a href={url} className="rounded-lg active:scale-[0.97] transition-transform duration-150 ease-out">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={image} alt="Scan this QR code in Discord, or tap it on the phone with Discord" className="size-52 rounded-lg bg-white sm:size-60" />
+    </a>
   ) : <Spinner />;
 }
 
@@ -107,7 +110,7 @@ export function LoginFlow({ next, cancelHref }: { next: string; cancelHref: stri
   return (
     <div className="flex flex-col gap-6">
       <PageTitle title={view.stage === "scanned" ? "Confirm on your phone" : view.stage === "browser" ? "Log in to Discord" : "Scan with Discord on your phone"}>
-        {view.stage === "scanned" ? "Approve the login in Discord." : view.stage === "browser" ? (view.reason === "captcha" ? "Discord wants a captcha. Solve it below." : "Complete the login in the browser below, including any verification Discord asks for.") : "Settings > Scan QR Code"}
+        {view.stage === "scanned" ? "Approve the login in Discord." : view.stage === "browser" ? (view.reason === "captcha" ? "Discord wants a captcha. Solve it below." : "Complete the login in the browser below, including any verification Discord asks for.") : "Settings > Scan QR Code, or tap the code if you are on that phone."}
       </PageTitle>
       {view.stage === "error" ? (
         <>
