@@ -13,7 +13,7 @@ test("launcher copies the extension, writes a private per-browser config and wip
     await mkdir(extensionPath);
     await writeFile(join(extensionPath, "manifest.json"), '{"manifest_version":3}');
     // No browser and no network: a process with the same stop lifecycle.
-    await writeFile(chromiumPath, "#!/bin/sh\nexec sleep 60\n");
+    await writeFile(chromiumPath, '#!/bin/sh\nmkdir -p "$XDG_CONFIG_HOME"\nprintf "%s\\n" "$CHROME_CONFIG_HOME" "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME" > "$XDG_CONFIG_HOME/test-process-env"\nexec sleep 60\n');
     await chmod(chromiumPath, 0o700);
     const launch = BrowserProcess.create({ extensionPath, profileRoot, chromiumPath, stopTimeoutMs: 100 });
     const browser = (await launch("test-secret-not-real", "light")).unwrap();
@@ -23,6 +23,14 @@ test("launcher copies the extension, writes a private per-browser config and wip
       if (entry === undefined) return;
       const profile = join(profileRoot, entry);
       const config = join(profile, "login-extension", "config.json");
+      const environment = join(profile, "config", "test-process-env");
+      for (let attempt = 0; attempt < 50; attempt++) {
+        if (await stat(environment).then(() => true, () => false)) break;
+        await Bun.sleep(10);
+      }
+      expect((await readFile(environment, "utf8")).trim().split("\n")).toEqual([
+        join(profile, "config"), join(profile, "config"), join(profile, "cache"),
+      ]);
       expect(JSON.parse(await readFile(config, "utf8"))).toEqual({ secret: "test-secret-not-real" });
       expect((await stat(config)).mode & 0o777).toBe(0o600);
       expect((await stat(profile)).mode & 0o777).toBe(0o700);

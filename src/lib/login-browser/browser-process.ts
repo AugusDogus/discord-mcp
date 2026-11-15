@@ -43,7 +43,18 @@ const create = (config: Config): BrowserLauncher => async (secret, colorScheme) 
       const extensionDir = join(directory, "login-extension");
       await cp(config.extensionPath, extensionDir, { recursive: true });
       await writeFile(join(extensionDir, "config.json"), JSON.stringify({ secret }), { mode: 0o600 });
-      const child = spawn(config.chromiumPath, args(directory, extensionDir, colorScheme), { stdio: "ignore", env: process.env });
+      // Chromium's crash handler otherwise uses ~/.config independently of
+      // --user-data-dir. Keep its dumps and OS-level caches in the same RAM
+      // directory so closing the browser removes them too.
+      const child = spawn(config.chromiumPath, args(directory, extensionDir, colorScheme), {
+        stdio: "ignore",
+        env: {
+          ...process.env,
+          CHROME_CONFIG_HOME: join(directory, "config"),
+          XDG_CONFIG_HOME: join(directory, "config"),
+          XDG_CACHE_HOME: join(directory, "cache"),
+        },
+      });
       let done = false;
       const exited = new Promise<void>((resolve) => {
         const finish = () => { done = true; resolve(); };
