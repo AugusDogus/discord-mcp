@@ -1,5 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { Result } from "better-result";
+import { DiscordAccountStore, type DiscordAccountStorageError } from "@/lib/discord/account-store";
+import { DiscordUser } from "@/lib/discord/user";
+import type { VaultStorageError } from "@/lib/vault";
 import { keySlot, oauthGrant } from "@/lib/db/vault-schema";
 import { Base64Url } from "@/lib/vault/base64url";
 import { KeySlot } from "@/lib/vault/key-slot";
@@ -13,18 +16,55 @@ import { OAuthLog } from "./log";
 import { McpScope } from "./scopes";
 import { AUTHORIZATION_CODE_TTL_MS, AuthorizationCode } from "./tokens";
 
-/** What the consent page renders. */
+/** A Discord account the connection can act as, as the consent page shows it. */
+export type ConsentAccount = {
+  readonly id: string;
+  readonly name: string;
+  readonly handle: string;
+  readonly avatarUrl: string;
+};
+
+/**
+ * What the consent page renders. `login`: the user has no logged-in Discord
+ * account yet; log in first, then this request resumes. `ready` lists the
+ * accounts the connection can use; with one, there is nothing to choose.
+ */
 export type ConsentView =
   | { readonly kind: "invalid"; readonly message: string }
   | { readonly kind: "unavailable"; readonly message: string }
   | { readonly kind: "sign_in"; readonly signInUrl: string }
+  | { readonly kind: "login"; readonly loginUrl: string }
   | {
       readonly kind: "ready";
       readonly clientName: string;
       readonly redirectHost: string;
       readonly scopes: readonly McpScope[];
+      readonly accounts: readonly [ConsentAccount, ...ConsentAccount[]];
       readonly ticket: string;
     };
+
+/** The user's logged-in accounts a grant can be bound to: readable and not rejected by Discord. */
+const accountsOf = async (
+  ctx: OAuthContext,
+  userId: string,
+): Promise<Result<ConsentAccount[], DiscordAccountStorageError | VaultStorageError>> => {
+  const listed = await DiscordAccountStore.listWith(ctx.db, ctx.vault, userId);
+  if (listed.isErr()) return listed;
+  return Result.ok(
+    listed.value.flatMap((entry) =>
+      entry.kind === "readable" && entry.record.status === "active"
+        ? [
+            {
+              id: entry.record.id,
+              name: DiscordUser.displayName(entry.record.user),
+              handle: DiscordUser.handle(entry.record.user),
+              avatarUrl: DiscordUser.avatarUrl(entry.record.user),
+            },
+          ]
+        : [],
+    ),
+  );
+};
 
 const UNAVAILABLE_MESSAGE =
   "discord-mcp could not load this request right now. Nothing was shared. Reload the page to try again.";
@@ -56,24 +96,31 @@ const load = async (ctx: OAuthContext, params: URLSearchParams, headers: Headers
   const { request, client } = validated.value;
   const session = await AuthorizeEndpoint.sessionOf(ctx, headers);
   if (session.isErr()) return { kind: "unavailable", message: UNAVAILABLE_MESSAGE };
-  if (session.value === null) {
-    const authorize = `/oauth/authorize?${AuthorizationRequest.toSearchParams(request).toString()}`;
-    return { kind: "sign_in", signInUrl: AuthorizeEndpoint.signInUrl(authorize) };
+  const authorize = `/oauth/authorize?${AuthorizationRequest.toSearchParams(request).toString()}`;
+  if (session.value === null) return { kind: "sign_in", signInUrl: AuthorizeEndpoint.signInUrl(authorize) };
+  const accounts = await accountsOf(ctx, session.value.userId);
+  if (accounts.isErr()) {
+    OAuthLog.failure(accounts.error.operation, accounts.error.cause);
+    return { kind: "unavailable", message: UNAVAILABLE_MESSAGE };
   }
+  const [first, ...rest] = accounts.value;
+  if (first === undefined) return { kind: "login", loginUrl: `/dashboard/login?${new URLSearchParams({ next: authorize }).toString()}` };
   return {
     kind: "ready",
     clientName: client.clientName,
     redirectHost: redirectHostOf(request.redirectUri),
     scopes: request.scopes,
+    accounts: [first, ...rest],
     ticket: ConsentTicket.issue(ctx, session.value, request),
   };
 };
 
-/** Creates the grant and a 60 s single-use oauth_code slot; returns the code string. */
+/** Creates the grant, bound to `discordAccountId`, and a 60 s single-use oauth_code slot; returns the code string. */
 const issueCode = async (
   ctx: OAuthContext,
   session: BrowserSession,
   authorization: ValidatedAuthorization,
+  discordAccountId: string,
 ): Promise<Result<string, OAuthStorageError>> => {
   const now = ctx.vault.now();
   const { request } = authorization;
@@ -97,6 +144,7 @@ const issueCode = async (
         ctx.db.insert(oauthGrant).values({
           id: grantId,
           userId: session.userId,
+          discordAccountId,
           clientId: request.clientId,
           scope: McpScope.format(request.scopes),
           createdAt: now,
@@ -110,7 +158,8 @@ const issueCode = async (
 };
 
 /**
- * POST /oauth/consent/decision (form: ticket, decision=approve|deny).
+ * POST /oauth/consent/decision (form: ticket, decision=approve|deny, and
+ * account=<discord_account id> to approve).
  * CSRF: the Origin must be ours and the ticket must be valid, unexpired,
  * unused and bound to the current Better Auth session.
  */
@@ -132,6 +181,26 @@ const decide = async (ctx: OAuthContext, request: Request): Promise<Response> =>
   }
   const claims = ConsentTicket.verify(ctx, ticket, session.value);
   if (claims.isErr()) return OAuthHttp.htmlError(400, "Approval expired", claims.error.message);
+  // Choose the account before consuming the ticket, so a missing choice can be retried.
+  let choice: { readonly decision: "deny" } | { readonly decision: "approve"; readonly discordAccountId: string } = { decision: "deny" };
+  if (decision === "approve") {
+    const accounts = await accountsOf(ctx, session.value.userId);
+    if (accounts.isErr()) {
+      OAuthLog.failure(accounts.error.operation, accounts.error.cause);
+      return OAuthHttp.htmlError(503, "Authorization unavailable", UNAVAILABLE_MESSAGE);
+    }
+    const chosen = form.value.get("account");
+    const account = accounts.value.find((candidate) => candidate.id === chosen);
+    if (account === undefined)
+      return OAuthHttp.htmlError(
+        400,
+        "Choose a Discord account",
+        accounts.value.length === 0
+          ? "No Discord account is logged in to discord-mcp. Nothing was shared. Log in to Discord from the dashboard, then return to the app you were connecting and start again."
+          : "Choose which logged-in Discord account this connection uses. Nothing was shared. Go back to the approval page and pick an account.",
+      );
+    choice = { decision: "approve", discordAccountId: account.id };
+  }
   const consumed = await ConsentTicket.consume(ctx, claims.value);
   if (consumed.isErr()) {
     if (consumed.error._tag === "OAuthStorageError") {
@@ -158,7 +227,7 @@ const decide = async (ctx: OAuthContext, request: Request): Promise<Response> =>
   const authorization = validated.value;
   const { request: authRequest } = authorization;
 
-  if (decision === "deny") {
+  if (choice.decision === "deny") {
     return OAuthHttp.seeOther(
       AuthorizationRequest.responseUrl(ctx, authRequest.redirectUri, {
         error: "access_denied",
@@ -168,7 +237,7 @@ const decide = async (ctx: OAuthContext, request: Request): Promise<Response> =>
     );
   }
 
-  const code = await issueCode(ctx, session.value, authorization);
+  const code = await issueCode(ctx, session.value, authorization, choice.discordAccountId);
   if (code.isErr()) {
     OAuthLog.failure(code.error.operation, code.error.cause);
     return OAuthHttp.htmlError(503, "Authorization unavailable", UNAVAILABLE_MESSAGE);

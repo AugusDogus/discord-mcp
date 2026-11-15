@@ -8,7 +8,7 @@ import type { DiscordMcpContext, DiscordToolRegistrar } from "./context";
 export type { DiscordMcpContext, DiscordToolRegistrar } from "./context";
 
 const instructions = [
-  "discord-mcp acts as the user's own Discord account.",
+  "discord-mcp acts as the user's own Discord account: the one chosen when this connection was approved.",
   "Call get_status first. If the account is not logged in, ask the user to log in from the discord-mcp dashboard.",
 ].join("\n");
 

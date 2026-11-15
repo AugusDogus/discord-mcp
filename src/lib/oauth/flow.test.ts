@@ -2,7 +2,12 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createSecretKey, hkdfSync } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
+import { discordAccount } from "@/lib/db/app-schema";
 import { keySlot, oauthGrant } from "@/lib/db/vault-schema";
+import { Result } from "better-result";
+import { DiscordAccountStore } from "@/lib/discord/account-store";
+import { DiscordLogout } from "@/lib/discord/logout";
+import { DiscordRest } from "@/lib/discord/rest";
 import { SecretBox } from "@/lib/secret-box";
 import { Dek } from "@/lib/vault/dek";
 import { KeySlot } from "@/lib/vault/key-slot";
@@ -40,6 +45,25 @@ afterEach(async () => {
 });
 
 type Browser = { userId: string; cookie: string };
+
+/** Stores a logged-in Discord account for `userId`, as the browser login does. */
+const addAccount = async (userId: string, discordUserId = "123", name = "Test User") =>
+  (
+    await DiscordAccountStore.saveWith(h.ctx.db, h.ctx.vault, userId, {
+      token: "test-token-not-real",
+      user: { id: discordUserId, username: `test-${discordUserId}`, globalName: name, discriminator: "0", avatar: null },
+    })
+  ).unwrap();
+
+/** A signed-in browser. A new user also gets a logged-in Discord account, which approving needs. */
+const signIn = async (existing?: string): Promise<Browser> => {
+  const browser = await h.signIn(existing);
+  if (existing === undefined) await addAccount(browser.userId);
+  return browser;
+};
+
+/** The account each ready consent view offered first, which `decide` submits unless told otherwise. */
+const ticketAccounts = new Map<string, string>();
 
 const registerClient = async (body: Record<string, unknown> = {}) => {
   const response = await OAuthClients.register(
@@ -82,13 +106,24 @@ const consentView = async (params: URLSearchParams, cookie: string): Promise<Con
 
 const readyTicket = (view: ConsentView): string => {
   if (view.kind !== "ready") throw new Error(`expected a ready consent view, got ${view.kind}`);
+  ticketAccounts.set(view.ticket, view.accounts[0].id);
   return view.ticket;
 };
 
-const decide = (ticket: string, decision: "approve" | "deny", cookie: string, origin = TEST_ORIGIN) =>
+const decide = (
+  ticket: string,
+  decision: "approve" | "deny",
+  cookie: string,
+  origin = TEST_ORIGIN,
+  account = ticketAccounts.get(ticket),
+) =>
   ConsentFlow.decide(
     h.ctx,
-    OAuthTesting.form(`${TEST_ORIGIN}/oauth/consent/decision`, { ticket, decision }, { origin, cookie }),
+    OAuthTesting.form(
+      `${TEST_ORIGIN}/oauth/consent/decision`,
+      { ticket, decision, ...(account === undefined ? {} : { account }) },
+      { origin, cookie },
+    ),
   );
 
 /** Runs authorize -> consent -> approve for `browser` and returns the code. */
@@ -136,7 +171,7 @@ const expectOAuthError = async (response: Response, status: number, error: strin
 /** Registers a client, signs in, approves and redeems: the happy path. */
 const connected = async () => {
   const client = await registerClient();
-  const browser = await h.signIn();
+  const browser = await signIn();
   const { verifier, challenge } = OAuthTesting.pkce();
   const { code } = await approve(browser, client.client_id, challenge);
   const response = await exchange(client.client_id, code, verifier);
@@ -178,7 +213,7 @@ describe("authorization code flow", () => {
 
   test("requested scope is intersected with the client's registration", async () => {
     const client = await registerClient({ scope: "discord:read" });
-    const browser = await h.signIn();
+    const browser = await signIn();
     const { verifier, challenge } = OAuthTesting.pkce();
     const { code } = await approve(browser, client.client_id, challenge, { scope: "discord:read discord:write" });
     const tokens = tokenResponse.parse(await (await exchange(client.client_id, code, verifier)).json());
@@ -187,7 +222,7 @@ describe("authorization code flow", () => {
 
   test("deny redirects with access_denied and state, and creates nothing", async () => {
     const client = await registerClient();
-    const browser = await h.signIn();
+    const browser = await signIn();
     const ticket = readyTicket(await consentView(authorizeParams(client.client_id, OAuthTesting.pkce().challenge), browser.cookie));
     const response = await decide(ticket, "deny", browser.cookie);
     expect(response.status).toBe(303);
@@ -216,7 +251,7 @@ describe("/oauth/authorize validation", () => {
 
   test("other errors render an error page and never redirect to the (dynamically registered) redirect URI", async () => {
     const client = await registerClient({ redirect_uris: ["https://evil.example/phish"] });
-    const browser = await h.signIn();
+    const browser = await signIn();
     const { challenge } = OAuthTesting.pkce();
     const cases: readonly Record<string, string>[] = [
       { response_type: "" },
@@ -251,7 +286,7 @@ describe("/oauth/authorize validation", () => {
 
   test("the consent view carries the raw client name (React escapes it) and the redirect host", async () => {
     const client = await registerClient({ client_name: "<script>alert(1)</script>" });
-    const browser = await h.signIn();
+    const browser = await signIn();
     const view = await consentView(authorizeParams(client.client_id, OAuthTesting.pkce().challenge), browser.cookie);
     expect(view.kind === "ready" && view.clientName).toBe("<script>alert(1)</script>");
     expect(view.kind === "ready" && view.redirectHost).toBe("127.0.0.1:8976");
@@ -261,7 +296,7 @@ describe("/oauth/authorize validation", () => {
 describe("consent CSRF protection", () => {
   const prepare = async () => {
     const client = await registerClient();
-    const browser = await h.signIn();
+    const browser = await signIn();
     const ticket = readyTicket(await consentView(authorizeParams(client.client_id, OAuthTesting.pkce().challenge), browser.cookie));
     return { client, browser, ticket };
   };
@@ -287,7 +322,7 @@ describe("consent CSRF protection", () => {
 
   test("tickets are bound to the session and expire", async () => {
     const { ticket } = await prepare();
-    const otherBrowser = await h.signIn();
+    const otherBrowser = await signIn();
     expect((await decide(ticket, "approve", otherBrowser.cookie)).status).toBe(400);
 
     const second = await prepare();
@@ -309,11 +344,9 @@ describe("consent CSRF protection", () => {
 describe("who can approve", () => {
   test("after logging in to Discord, any signed-in browser of the user approves, and the grant is theirs", async () => {
     const client = await registerClient();
-    const firstBrowser = await h.signIn();
-    await ServerKey.createWith(h.ctx.db, h.ctx.vault, firstBrowser.userId);
-    await VaultTesting.linkAccount(h.ctx.db, firstBrowser.userId, Dek.generate());
+    const firstBrowser = await signIn();
 
-    const otherBrowser = await h.signIn(firstBrowser.userId);
+    const otherBrowser = await signIn(firstBrowser.userId);
     const { verifier, challenge } = OAuthTesting.pkce();
     const { code } = await approve(otherBrowser, client.client_id, challenge);
     const tokens = tokenResponse.parse(await (await exchange(client.client_id, code, verifier)).json());
@@ -326,7 +359,7 @@ describe("token endpoint: authorization_code", () => {
   test("PKCE failures, wrong redirect_uri, wrong resource and wrong client are invalid_grant/invalid_target", async () => {
     const client = await registerClient();
     const other = await registerClient();
-    const browser = await h.signIn();
+    const browser = await signIn();
     const { verifier, challenge } = OAuthTesting.pkce();
     const { code } = await approve(browser, client.client_id, challenge);
 
@@ -343,7 +376,7 @@ describe("token endpoint: authorization_code", () => {
 
   test("codes expire after 60 seconds", async () => {
     const client = await registerClient();
-    const browser = await h.signIn();
+    const browser = await signIn();
     const { verifier, challenge } = OAuthTesting.pkce();
     const { code } = await approve(browser, client.client_id, challenge);
     h.clock.advance(60_000);
@@ -375,7 +408,7 @@ describe("token endpoint: authorization_code", () => {
 
   test("tampered codes are invalid_grant", async () => {
     const client = await registerClient();
-    const browser = await h.signIn();
+    const browser = await signIn();
     const { verifier, challenge } = OAuthTesting.pkce();
     const { code } = await approve(browser, client.client_id, challenge);
     const tampered = `${code.slice(0, -2)}${code.endsWith("AA") ? "AB" : "AA"}`;
@@ -386,7 +419,7 @@ describe("token endpoint: authorization_code", () => {
   test("confidential clients must authenticate with their registered method", async () => {
     const client = await registerClient({ token_endpoint_auth_method: "client_secret_basic" });
     const secret = client.client_secret ?? "";
-    const browser = await h.signIn();
+    const browser = await signIn();
     const { verifier, challenge } = OAuthTesting.pkce();
     const { code } = await approve(browser, client.client_id, challenge);
     const params = { grant_type: "authorization_code", code, redirect_uri: REDIRECT, code_verifier: verifier };
@@ -471,7 +504,7 @@ describe("token endpoint: refresh_token", () => {
 
   test("narrowing below the registration is enforced too", async () => {
     const client = await registerClient({ scope: "discord:read" });
-    const browser = await h.signIn();
+    const browser = await signIn();
     const { verifier, challenge } = OAuthTesting.pkce();
     const { code } = await approve(browser, client.client_id, challenge);
     const tokens = tokenResponse.parse(await (await exchange(client.client_id, code, verifier)).json());
@@ -593,7 +626,13 @@ describe("access tokens and /api/mcp authentication", () => {
       { associatedData: "discord-mcp/access-token", version: "v1" },
     )}`;
     const auth = (await McpAuth.authenticate(h.ctx, mcpRequest(legacy))).unwrap();
-    expect(auth).toEqual({ userId: browser.userId, grantId: grant.id, clientId: client.client_id, scopes: ["discord:read"] });
+    expect(auth).toEqual({
+      userId: browser.userId,
+      grantId: grant.id,
+      discordAccountId: grant.discordAccountId ?? "missing",
+      clientId: client.client_id,
+      scopes: ["discord:read"],
+    });
     expect(JSON.stringify(auth)).not.toContain(dek.id);
     // New tokens no longer carry key material.
     expect(AccessToken.open(h.ctx.vault.pepper, tokens.access_token).unwrap()).not.toHaveProperty("dek");
@@ -602,7 +641,8 @@ describe("access tokens and /api/mcp authentication", () => {
   test("logging in again under a new key keeps grants, access tokens and refresh tokens working", async () => {
     const { client, tokens, browser } = await connected();
     await ServerKey.createWith(h.ctx.db, h.ctx.vault, browser.userId);
-    await VaultTesting.linkAccount(h.ctx.db, browser.userId, Dek.generate());
+    await addAccount(browser.userId);
+    expect(await h.ctx.db.select().from(discordAccount)).toHaveLength(1);
     expect((await McpAuth.authenticate(h.ctx, mcpRequest(tokens.access_token))).isOk()).toBe(true);
     const rotated = await refresh(client.client_id, tokens.refresh_token);
     expect(rotated.status).toBe(200);
@@ -673,7 +713,7 @@ describe("dashboard grant revocation", () => {
   test("only the owner, same-origin, can revoke", async () => {
     const { browser, tokens } = await connected();
     const grant = await grantOf(browser.userId);
-    const stranger = await h.signIn();
+    const stranger = await signIn();
     expect((await revokeFromDashboard(grant.id, browser.cookie, "https://evil.example")).status).toBe(403);
     expect((await revokeFromDashboard(grant.id, stranger.cookie)).status).toBe(404);
     expect((await revokeFromDashboard(grant.id, "")).status).toBe(401);
@@ -684,5 +724,111 @@ describe("dashboard grant revocation", () => {
     expect(response.headers.get("location")).toBe("/dashboard");
     expect((await grantOf(browser.userId)).revokedReason).toBe("revoked_by_user");
     expect((await McpAuth.authenticate(h.ctx, mcpRequest(tokens.access_token))).isErr()).toBe(true);
+  });
+});
+
+describe("Discord account choice", () => {
+  test("with no logged-in account, consent sends the user to log in and then resumes this request", async () => {
+    const client = await registerClient();
+    const browser = await h.signIn();
+    const params = authorizeParams(client.client_id, OAuthTesting.pkce().challenge);
+    const view = await consentView(params, browser.cookie);
+    if (view.kind !== "login") throw new Error(`expected a login view, got ${view.kind}`);
+    const login = new URL(view.loginUrl, TEST_ORIGIN);
+    expect(login.pathname).toBe("/dashboard/login");
+    const next = new URL(login.searchParams.get("next") ?? "", TEST_ORIGIN);
+    expect(next.pathname).toBe("/oauth/authorize");
+    expect(next.searchParams.get("client_id")).toBe(client.client_id);
+    expect(next.searchParams.get("state")).toBe("state-123");
+  });
+
+  test("with one account there is nothing to choose, and the grant acts as it", async () => {
+    const { browser, tokens } = await connected();
+    const [account] = await h.ctx.db.select().from(discordAccount).where(eq(discordAccount.userId, browser.userId));
+    const auth = (await McpAuth.authenticate(h.ctx, mcpRequest(tokens.access_token))).unwrap();
+    expect(auth.discordAccountId).toBe(account?.id ?? "missing");
+    expect((await grantOf(browser.userId)).discordAccountId).toBe(account?.id ?? "missing");
+  });
+
+  test("with two accounts the user picks one; each connection is bound to the account picked for it", async () => {
+    const client = await registerClient();
+    const browser = await signIn();
+    const second = await addAccount(browser.userId, "456", "Second Account");
+    const params = authorizeParams(client.client_id, OAuthTesting.pkce().challenge);
+    const view = await consentView(params, browser.cookie);
+    if (view.kind !== "ready") throw new Error(`expected a ready view, got ${view.kind}`);
+    expect(view.accounts.map((account) => [account.name, account.handle])).toEqual([
+      ["Test User", "@test-123"],
+      ["Second Account", "@test-456"],
+    ]);
+    expect(view.accounts[1]?.avatarUrl.startsWith("https://cdn.discordapp.com/")).toBe(true);
+
+    const { verifier, challenge } = OAuthTesting.pkce();
+    const ticket = readyTicket(await consentView(authorizeParams(client.client_id, challenge), browser.cookie));
+    const approved = await decide(ticket, "approve", browser.cookie, TEST_ORIGIN, second.id);
+    const code = new URL(approved.headers.get("location") ?? "").searchParams.get("code") ?? "";
+    const tokens = tokenResponse.parse(await (await exchange(client.client_id, code, verifier)).json());
+    expect((await McpAuth.authenticate(h.ctx, mcpRequest(tokens.access_token))).unwrap().discordAccountId).toBe(second.id);
+  });
+
+  test("approving without a choice, or with another user's account, shares nothing and keeps the ticket", async () => {
+    const client = await registerClient();
+    const browser = await signIn();
+    await addAccount(browser.userId, "456");
+    const stranger = await signIn();
+    const [strangerAccount] = await h.ctx.db.select().from(discordAccount).where(eq(discordAccount.userId, stranger.userId));
+    const ticket = readyTicket(await consentView(authorizeParams(client.client_id, OAuthTesting.pkce().challenge), browser.cookie));
+    const missing = await ConsentFlow.decide(
+      h.ctx,
+      OAuthTesting.form(`${TEST_ORIGIN}/oauth/consent/decision`, { ticket, decision: "approve" }, { origin: TEST_ORIGIN, cookie: browser.cookie }),
+    );
+    expect(missing.status).toBe(400);
+    expect(await missing.text()).toContain("pick an account");
+    expect((await decide(ticket, "approve", browser.cookie, TEST_ORIGIN, strangerAccount?.id ?? "missing")).status).toBe(400);
+    expect(await h.ctx.db.select().from(oauthGrant)).toHaveLength(0);
+    expect((await decide(ticket, "approve", browser.cookie)).status).toBe(303);
+  });
+
+  test("an account Discord rejected is not offered", async () => {
+    const client = await registerClient();
+    const browser = await signIn();
+    const second = await addAccount(browser.userId, "456");
+    (await DiscordAccountStore.markRejected(h.ctx.db, { userId: browser.userId, accountId: second.id })).unwrap();
+    const view = await consentView(authorizeParams(client.client_id, OAuthTesting.pkce().challenge), browser.cookie);
+    expect(view.kind === "ready" && view.accounts.map((account) => account.handle)).toEqual(["@test-123"]);
+  });
+
+  test("logging out a connection's account stops it with an error saying to reconnect; other accounts' connections keep working", async () => {
+    const { client, browser, tokens } = await connected();
+    const other = await registerClient();
+    const second = await addAccount(browser.userId, "456");
+    const { verifier, challenge } = OAuthTesting.pkce();
+    const ticket = readyTicket(await consentView(authorizeParams(other.client_id, challenge), browser.cookie));
+    const approved = await decide(ticket, "approve", browser.cookie, TEST_ORIGIN, second.id);
+    const code = new URL(approved.headers.get("location") ?? "").searchParams.get("code") ?? "";
+    const otherTokens = tokenResponse.parse(await (await exchange(other.client_id, code, verifier)).json());
+
+    const first = (await McpAuth.authenticate(h.ctx, mcpRequest(tokens.access_token))).unwrap();
+    const loggedOut = await DiscordLogout.run(
+      {
+        db: h.ctx.db,
+        credentials: (key) => DiscordAccountStore.credentialsWith(h.ctx.db, h.ctx.vault, key),
+        rest: (_, token) => DiscordRest.create(token, { fetch: async () => new Response(null, { status: 204 }), rejected: async () => Result.ok(null) }),
+        stop: () => {},
+        now: h.clock.now,
+      },
+      { userId: browser.userId, accountId: first.discordAccountId },
+    );
+    expect(loggedOut.isOk()).toBe(true);
+
+    const rejected = await McpAuth.authenticate(h.ctx, mcpRequest(tokens.access_token));
+    expect(rejected.match({ ok: () => null, err: (e) => e.message })).toBe(OAuthGrants.ACCOUNT_LOGGED_OUT_MESSAGE);
+    expect(OAuthGrants.ACCOUNT_LOGGED_OUT_MESSAGE).toContain("Reconnect discord-mcp in your MCP client");
+    const refreshed = await refresh(client.client_id, tokens.refresh_token);
+    expect(refreshed.status).toBe(400);
+    expect(errorResponse.parse(await refreshed.json()).error_description).toBe(OAuthGrants.ACCOUNT_LOGGED_OUT_MESSAGE);
+
+    expect((await McpAuth.authenticate(h.ctx, mcpRequest(otherTokens.access_token))).unwrap().discordAccountId).toBe(second.id);
+    expect((await refresh(other.client_id, otherTokens.refresh_token)).status).toBe(200);
   });
 });

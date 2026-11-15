@@ -1,7 +1,7 @@
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import { Result } from "better-result";
 import { DiscordAccountLease } from "@/lib/discord/account-lease";
-import { DiscordAccountStore } from "@/lib/discord/account-store";
+import { DiscordAccountStore, type DiscordAccountKey } from "@/lib/discord/account-store";
 import { DiscordRuntime } from "@/lib/discord/runtime";
 import { DiscordService } from "@/lib/discord/service";
 import { getDb } from "@/lib/db/client";
@@ -16,20 +16,25 @@ const toToolResult = <T>(result: Result<T, { readonly message: string }>): CallT
     ? failure(result.error.message)
     : { content: [{ type: "text", text: JSON.stringify(result.value, null, 2) }] };
 
-const load = async (userId: string) => {
-  const credentials = await DiscordAccountStore.credentials(getDb(), userId);
+const load = async (account: DiscordAccountKey) => {
+  const credentials = await DiscordAccountStore.credentials(getDb(), account);
   if (credentials.isErr()) return credentials;
-  if (credentials.value === null || credentials.value.record.status !== "active")
-    return Result.err({ message: "Log in to Discord from the discord-mcp dashboard, then retry. Nothing was sent." });
+  if (credentials.value === null) return Result.err({ message: OAuthGrants.ACCOUNT_LOGGED_OUT_MESSAGE });
+  if (credentials.value.record.status !== "active")
+    return Result.err({
+      message: "Discord signed this connection's account out. Log in to that account again from the discord-mcp dashboard (Add account), then retry. Nothing was sent.",
+    });
   return Result.ok(
     DiscordService.create({
       credentials: credentials.value,
-      rest: DiscordRuntime.rest(userId, credentials.value.token),
+      rest: DiscordRuntime.rest(account, credentials.value.token),
       sessions: DiscordRuntime.sessions(),
-      rejected: () => DiscordAccountStore.markRejected(getDb(), userId),
+      rejected: () => DiscordAccountStore.markRejected(getDb(), account),
     }),
   );
 };
+/** The account this request's grant acts as. */
+const accountOf = (ctx: DiscordMcpContext): DiscordAccountKey => ({ userId: ctx.auth.userId, accountId: ctx.auth.discordAccountId });
 const run = async (
   ctx: DiscordMcpContext,
   scope: McpScope,
@@ -42,12 +47,19 @@ const run = async (
     if (ctx.service === undefined) {
       const grant = await OAuthGrants.load(getDb(), ctx.auth.grantId);
       if (grant.isErr()) return failure(grant.error.message);
-      if (grant.value === null || grant.value.revokedAt !== null || grant.value.userId !== ctx.auth.userId)
+      if (grant.value !== null && grant.value.userId === ctx.auth.userId && OAuthGrants.lostAccount(grant.value))
+        return failure(OAuthGrants.ACCOUNT_LOGGED_OUT_MESSAGE);
+      if (
+        grant.value === null ||
+        grant.value.revokedAt !== null ||
+        grant.value.userId !== ctx.auth.userId ||
+        grant.value.discordAccountId !== ctx.auth.discordAccountId
+      )
         return failure("This agent was disconnected. Re-authorize it from the dashboard before retrying.");
     }
-    const service = await (ctx.service ?? load)(ctx.auth.userId);
+    const service = await (ctx.service ?? load)(accountOf(ctx));
     if (service.isErr()) return failure(service.error.message);
     return toToolResult(await action(service.value));
   });
 };
-export const ToolRunner = { run, toToolResult } as const;
+export const ToolRunner = { run, toToolResult, accountOf } as const;

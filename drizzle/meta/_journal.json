@@ -8,6 +8,13 @@
       "when": 1794720395872,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1794727931626,
+      "tag": "0001_discord_accounts_by_id",
+      "breakpoints": true
     }
   ]
 }

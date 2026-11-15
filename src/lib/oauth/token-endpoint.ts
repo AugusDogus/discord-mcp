@@ -64,6 +64,7 @@ const liveGrant = async (
   const grant = await OAuthGrants.load(ctx.db, slot.grantId);
   if (grant.isErr()) return Result.err(grant.error);
   const row = grant.value;
+  if (row && OAuthGrants.lostAccount(row)) return Result.err(invalidGrant(OAuthGrants.ACCOUNT_LOGGED_OUT_MESSAGE));
   if (!row || row.revokedAt !== null) {
     return Result.err(invalidGrant("This authorization was revoked. Authorize the client again."));
   }

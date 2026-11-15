@@ -194,7 +194,8 @@ describe("Discord browser login", () => {
       const rows = await database.db.select().from(discordAccount);
       expect(rows[0]?.tokenEnc.startsWith("d1.")).toBe(true);
       expect(JSON.stringify(rows)).not.toContain(token.token);
-      expect((await DiscordAccountStore.credentialsWith(database.db, config, userId)).unwrap()?.token).toBe(token.token);
+      const accountId = rows[0]?.id ?? "missing";
+      expect((await DiscordAccountStore.credentialsWith(database.db, config, { userId, accountId })).unwrap()?.token).toBe(token.token);
     } finally { database.cleanup(); }
   });
 });

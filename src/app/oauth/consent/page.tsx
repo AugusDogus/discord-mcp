@@ -40,6 +40,8 @@ async function ConsentContent({ searchParams }: { searchParams: Promise<SearchPa
   switch (view.kind) {
     case "sign_in":
       return redirect(view.signInUrl);
+    case "login":
+      return redirect(view.loginUrl);
     case "invalid":
       return <Alert tone="warning">{view.message}</Alert>;
     case "unavailable":
@@ -61,8 +63,29 @@ async function ConsentContent({ searchParams }: { searchParams: Promise<SearchPa
               </li>
             ))}
           </ul>
-          <form method="post" action="/oauth/consent/decision">
+          <form method="post" action="/oauth/consent/decision" className="flex flex-col gap-6">
             <input type="hidden" name="ticket" value={view.ticket} />
+            {view.accounts.length === 1 ? (
+              <input type="hidden" name="account" value={view.accounts[0].id} />
+            ) : (
+              <fieldset className="flex flex-col gap-2.5">
+                <legend className="mb-2.5 text-sm font-medium">Which Discord account does it use?</legend>
+                {view.accounts.map((account) => (
+                  <label
+                    key={account.id}
+                    className="flex cursor-pointer items-center gap-3 rounded-xl border border-border p-3 has-[:checked]:border-accent"
+                  >
+                    <input type="radio" name="account" value={account.id} required className="size-4 shrink-0 accent-accent" />
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={account.avatarUrl} alt="" referrerPolicy="no-referrer" className="size-8 shrink-0 rounded-full" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium">{account.name}</span>
+                      <span className="block truncate text-sm text-muted">{account.handle}</span>
+                    </span>
+                  </label>
+                ))}
+              </fieldset>
+            )}
             <Actions>
               <button type="submit" name="decision" value="deny" className={buttonClass("secondary")}>
                 Deny

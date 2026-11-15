@@ -10,30 +10,33 @@ const request = (body: unknown) =>
     headers: { origin, "content-type": "application/json" },
     body: JSON.stringify(body),
   });
-test("account actions use the session owner and validate presence booleans", async () => {
+test("account actions name one account of the session owner and validate presence booleans", async () => {
   const calls: unknown[] = [];
   const deps: AccountEndpointDeps = {
     guard: async () => Result.ok({ userId: "123" }),
-    presence: async (id, enabled) => {
-      calls.push({ id, enabled });
-      return Result.ok(true);
+    presence: async (account, enabled) => {
+      calls.push({ account, enabled });
+      return Result.ok(account.accountId === "test-account");
     },
-    logout: async (id) => {
-      calls.push(id);
+    logout: async (account) => {
+      calls.push(account);
       return Result.ok(undefined);
     },
   };
-  for (const body of [{}, { enabled: "false" }, { enabled: true, userId: "456" }])
+  for (const body of [{}, { enabled: false }, { accountId: "test-account", enabled: "false" }, { accountId: "test-account", enabled: true, userId: "456" }])
     expect((await DiscordAccountEndpoint.handle(deps, request(body), "presence")).status).toBe(400);
   expect(calls).toEqual([]);
-  expect((await DiscordAccountEndpoint.handle(deps, request({ enabled: false }), "presence")).status).toBe(200);
-  expect(calls).toEqual([{ id: "123", enabled: false }]);
+  expect((await DiscordAccountEndpoint.handle(deps, request({ accountId: "test-account", enabled: false }), "presence")).status).toBe(200);
+  expect(calls).toEqual([{ account: { userId: "123", accountId: "test-account" }, enabled: false }]);
+  expect((await DiscordAccountEndpoint.handle(deps, request({ accountId: "other-account", enabled: true }), "presence")).status).toBe(404);
   const rejected = {
     ...deps,
     guard: async () => Result.err(new RequestRejectedError({ status: 403, message: "Wrong origin." })),
   };
-  expect((await DiscordAccountEndpoint.handle(rejected, request({}), "logout")).status).toBe(403);
-  expect(calls).toHaveLength(1);
-  expect((await DiscordAccountEndpoint.handle(deps, request({}), "logout")).status).toBe(200);
-  expect(calls.at(-1)).toBe("123");
+  expect((await DiscordAccountEndpoint.handle(rejected, request({ accountId: "test-account" }), "logout")).status).toBe(403);
+  expect(calls).toHaveLength(2);
+  expect((await DiscordAccountEndpoint.handle(deps, request({}), "logout")).status).toBe(400);
+  expect((await DiscordAccountEndpoint.handle(deps, request({ accountId: "test-account", userId: "456" }), "logout")).status).toBe(400);
+  expect((await DiscordAccountEndpoint.handle(deps, request({ accountId: "test-account" }), "logout")).status).toBe(200);
+  expect(calls.at(-1)).toEqual({ userId: "123", accountId: "test-account" });
 });

@@ -17,27 +17,30 @@ type Entry = {
   status: GatewayStatus;
 };
 
-/** Sessions exist only for interactions or an explicitly enabled write. Reads never call this module. */
+/**
+ * Sessions exist only for interactions or an explicitly enabled write. Reads
+ * never call this module. Sessions are keyed by stored Discord account id.
+ */
 const create = (deps: PresenceDeps) => {
   const entries = new Map<string, Entry>();
-  const stop = (userId: string) => {
-    const entry = entries.get(userId);
-    entries.delete(userId);
+  const stop = (accountId: string) => {
+    const entry = entries.get(accountId);
+    entries.delete(accountId);
     entry?.controller.abort();
   };
   const sweep = () => {
     for (const [id, entry] of entries) if (entry.busy === 0 && deps.now() >= entry.expiresAt) stop(id);
   };
   const withSession = async <T>(
-    userId: string,
+    accountId: string,
     token: string,
     online: boolean,
     action: (session: GatewaySession) => Promise<Result<T, DiscordApiError>>,
   ): Promise<Result<T, DiscordApiError>> => {
     sweep();
-    let entry = entries.get(userId);
+    let entry = entries.get(accountId);
     if (entry && entry.token !== token) {
-      stop(userId);
+      stop(accountId);
       entry = undefined;
     }
     if (!entry) {
@@ -51,18 +54,18 @@ const create = (deps: PresenceDeps) => {
         busy: 0,
         expiresAt: deps.now() + deps.idleMs,
       };
-      entries.set(userId, entry);
+      entries.set(accountId, entry);
     }
     const current = entry;
     current.busy += 1;
     try {
       const connected = await current.connecting;
       if (connected.isErr()) {
-        if (entries.get(userId) === current) stop(userId);
+        if (entries.get(accountId) === current) stop(accountId);
         return connected;
       }
       if (current.controller.signal.aborted || !connected.value.alive()) {
-        if (entries.get(userId) === current) stop(userId);
+        if (entries.get(accountId) === current) stop(accountId);
         return Result.err(
           DiscordRest.error(
             "use an interaction session",

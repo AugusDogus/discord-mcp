@@ -3,14 +3,17 @@ import { and, eq, isNull, lte, or } from "drizzle-orm";
 import { oauthGrant } from "@/lib/db/vault-schema";
 import { OAuthContext } from "./context";
 import { OAuthErrors, type OAuthStorageError } from "./errors";
+import { OAuthGrants } from "./grants";
 import { OAuthHttp } from "./http";
 import { McpScope } from "./scopes";
 import { AccessToken } from "./tokens";
 
-/** An authenticated MCP request: the grant's user, client and scopes. */
+/** An authenticated MCP request: the grant's user, Discord account, client and scopes. */
 export type McpAuth = {
   readonly userId: string;
   readonly grantId: string;
+  /** The stored Discord account (`discord_account.id`) every tool call acts as. */
+  readonly discordAccountId: string;
   readonly clientId: string;
   readonly scopes: readonly McpScope[];
 };
@@ -65,7 +68,9 @@ const authenticate = async (
         .select({
           userId: oauthGrant.userId,
           clientId: oauthGrant.clientId,
+          discordAccountId: oauthGrant.discordAccountId,
           revokedAt: oauthGrant.revokedAt,
+          revokedReason: oauthGrant.revokedReason,
           lastUsedAt: oauthGrant.lastUsedAt,
         })
         .from(oauthGrant)
@@ -77,7 +82,11 @@ const authenticate = async (
   });
   if (loaded.isErr()) return Result.err(loaded.error);
   const grant = loaded.value;
-  if (!grant || grant.revokedAt !== null || grant.userId !== userId || grant.clientId !== clientId) {
+  if (!grant || grant.userId !== userId || grant.clientId !== clientId) {
+    return unauthorized(true, "revoked", "This authorization was revoked. Authorize the client again.");
+  }
+  if (OAuthGrants.lostAccount(grant)) return unauthorized(true, "revoked", OAuthGrants.ACCOUNT_LOGGED_OUT_MESSAGE);
+  if (grant.revokedAt !== null || grant.discordAccountId === null) {
     return unauthorized(true, "revoked", "This authorization was revoked. Authorize the client again.");
   }
   if (grant.lastUsedAt === null || grant.lastUsedAt <= now - LAST_USED_RESOLUTION_MS) {
@@ -96,7 +105,7 @@ const authenticate = async (
     });
     if (touched.isErr()) return Result.err(touched.error);
   }
-  return Result.ok({ userId, grantId, clientId, scopes: claims.value.scopes });
+  return Result.ok({ userId, grantId, discordAccountId: grant.discordAccountId, clientId, scopes: claims.value.scopes });
 };
 
 const quote = (value: string) => `"${value.replace(/["\\]/g, "")}"`;

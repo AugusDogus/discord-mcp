@@ -7,10 +7,13 @@ import { CopyButton } from "../client-actions";
 
 /**
  * The MCP address to give an agent, and the agents already approved, each
- * revocable. Reads the database: render inside <Suspense>. Client names come
+ * revocable and showing the Discord account it acts as. Reads the database: render inside <Suspense>. Client names come
  * from dynamic registration and are untrusted; React escapes them.
  */
-export async function Agents({ userId, mcpUrl }: { userId: string; mcpUrl: string }) {
+/** A stored Discord account an agent can use, as its row shows it. */
+export type AgentAccount = { readonly id: string; readonly name: string; readonly avatarUrl: string };
+
+export async function Agents({ userId, mcpUrl, accounts }: { userId: string; mcpUrl: string; accounts: readonly AgentAccount[] }) {
   await connection();
   const grants = await OAuthGrants.listActive(getDb(), userId);
   const now = new Date();
@@ -40,8 +43,12 @@ export async function Agents({ userId, mcpUrl }: { userId: string; mcpUrl: strin
                     <p className="truncate text-sm font-medium" title={grant.clientName}>
                       {grant.clientName}
                     </p>
-                    <p className="text-sm text-muted">
-                      {grant.lastUsedAt ? `Used ${timeAgo(grant.lastUsedAt, now)}` : `Approved ${timeAgo(grant.createdAt, now)}`}
+                    <p className="flex min-w-0 items-center gap-1.5 text-sm text-muted">
+                      <AccountLabel account={accounts.find((account) => account.id === grant.discordAccountId) ?? null} />
+                      <span aria-hidden>·</span>
+                      <span className="shrink-0">
+                        {grant.lastUsedAt ? `Used ${timeAgo(grant.lastUsedAt, now)}` : `Approved ${timeAgo(grant.createdAt, now)}`}
+                      </span>
                     </p>
                   </div>
                   <form method="post" action={`/api/oauth/grants/${encodeURIComponent(grant.id)}/revoke`}>
@@ -55,5 +62,16 @@ export async function Agents({ userId, mcpUrl }: { userId: string; mcpUrl: strin
           ),
       })}
     </Section>
+  );
+}
+
+function AccountLabel({ account }: { account: AgentAccount | null }) {
+  if (account === null) return <span className="truncate">No Discord account</span>;
+  return (
+    <>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={account.avatarUrl} alt="" className="size-4 shrink-0 rounded-full" />
+      <span className="truncate">{account.name}</span>
+    </>
   );
 }

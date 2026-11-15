@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { check, index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { discordAccount } from "./app-schema";
 import { user } from "./auth-schema";
 
 /**
@@ -40,7 +41,12 @@ export const oauthClient = sqliteTable("oauth_client", {
   createdAt: integer("created_at").default(nowMs).notNull(),
 });
 
-/** A user's authorization of one client. Revoking it kills its refresh tokens and access tokens. */
+/**
+ * A user's authorization of one client, acting as one of the user's Discord
+ * accounts. Revoking it kills its refresh tokens and access tokens. Logging
+ * out the account revokes its grants; `discord_account_id` is null only for a
+ * grant whose account is gone, which no longer authenticates.
+ */
 export const oauthGrant = sqliteTable(
   "oauth_grant",
   {
@@ -49,6 +55,7 @@ export const oauthGrant = sqliteTable(
     clientId: text("client_id")
       .notNull()
       .references(() => oauthClient.clientId, { onDelete: "cascade" }),
+    discordAccountId: text("discord_account_id").references(() => discordAccount.id, { onDelete: "set null" }),
     /** Space-separated granted scopes. */
     scope: text("scope").notNull(),
     createdAt: integer("created_at").default(nowMs).notNull(),
@@ -56,7 +63,7 @@ export const oauthGrant = sqliteTable(
     revokedAt: integer("revoked_at"),
     revokedReason: text("revoked_reason"),
   },
-  (table) => [index("oauth_grant_user_idx").on(table.userId)],
+  (table) => [index("oauth_grant_user_idx").on(table.userId), index("oauth_grant_discord_account_idx").on(table.discordAccountId)],
 );
 
 export const KEY_SLOT_KINDS = ["oauth_code", "oauth_refresh"] as const;

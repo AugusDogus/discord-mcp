@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useLayoutEffect, useState } from "react";
 import QRCode from "qrcode";
@@ -35,7 +36,11 @@ const readError = async (response: Response): Promise<string> => {
     : `Discord login failed (HTTP ${response.status}). Try again.`;
 };
 
-export function LoginFlow() {
+/**
+ * The browser login. `next` is a validated same-origin path to open once the
+ * account is saved; `cancelHref`, when set, offers a way back.
+ */
+export function LoginFlow({ next, cancelHref }: { next: string; cancelHref: string | null }) {
   const router = useRouter();
   const [view, setView] = useState<LoginView>({ stage: "starting" });
   const [attempt, setAttempt] = useState(0);
@@ -75,8 +80,10 @@ export function LoginFlow() {
         setView(parsed.data);
         finished = parsed.data.stage === "error" || parsed.data.stage === "loggedIn";
         if (parsed.data.stage === "loggedIn") {
-          router.replace("/dashboard");
-          router.refresh();
+          if (next === "/dashboard") {
+            router.replace(next);
+            router.refresh();
+          } else window.location.replace(next);
         }
       } catch {
         if (!controller.signal.aborted) {
@@ -95,7 +102,7 @@ export function LoginFlow() {
       window.removeEventListener("pagehide", close);
       void stop();
     };
-  }, [attempt, router]);
+  }, [attempt, next, router]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -106,6 +113,7 @@ export function LoginFlow() {
         <>
           <Alert tone="danger">{view.message}</Alert>
           <Actions>
+            {cancelHref === null ? null : <Link href={cancelHref} className={buttonClass("secondary")}>Cancel</Link>}
             <button type="button" className={buttonClass()} onClick={async () => {
               await stop();
               setView({ stage: "starting" });
@@ -130,6 +138,11 @@ export function LoginFlow() {
             <span className="flex items-center gap-2 text-sm text-muted" role="status"><Spinner />{view.stage === "loggedIn" ? "Opening discord-mcp" : "Starting a browser"}</span>
           )}
         </div>
+      )}
+      {view.stage === "error" || cancelHref === null ? null : (
+        <Actions>
+          <Link href={cancelHref} className={buttonClass("secondary")}>Cancel</Link>
+        </Actions>
       )}
     </div>
   );

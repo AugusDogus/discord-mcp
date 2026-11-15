@@ -23,7 +23,7 @@ const get = (): LoginBrowser => {
       return user === null ? Result.err({ message: "Discord returned an unreadable account profile. Nothing was saved; try again." }) : Result.ok(user);
     },
     save: (userId, login, signal) => DiscordAccountLease.run(userId, async () => {
-      if (signal.aborted) return Result.err({ message: "The Discord login was stopped before saving. The previous account was kept." });
+      if (signal.aborted) return Result.err({ message: "The Discord login was stopped before saving. Stored accounts were not changed." });
       return DiscordAccountStore.save(getDb(), userId, login);
     }),
     now: Date.now,

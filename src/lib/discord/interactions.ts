@@ -6,7 +6,7 @@ import type { DiscordPresence } from "./presence";
 import { DiscordRest, type DiscordApiError } from "./rest";
 import { DiscordSlashCommand } from "./slash-command";
 
-export type InteractionAccount = { readonly userId: string; readonly token: string; readonly online: boolean };
+export type InteractionAccount = { readonly accountId: string; readonly token: string; readonly online: boolean };
 const component: z.ZodType<Component> = z.lazy(() =>
   z.object({
     type: z.number(),
@@ -41,7 +41,7 @@ const create = (
   rejected: () => Promise<Result<unknown, { readonly message: string }>>,
 ) => {
   const send = async (body: Record<string, unknown>) => {
-    const result = await sessions.withSession(account.userId, account.token, account.online, async (session) => {
+    const result = await sessions.withSession(account.accountId, account.token, account.online, async (session) => {
       const nonce = (
         ((BigInt(Date.now()) - 1420070400000n) << 22n) |
         BigInt(randomBytes(3).readUIntBE(0, 3) & 0x3fffff)

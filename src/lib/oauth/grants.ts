@@ -11,11 +11,25 @@ export type GrantRevocationReason =
   | "authorization_code_reuse"
   | "refresh_token_reuse"
   | "revoked_by_client"
-  | "revoked_by_user";
+  | "revoked_by_user"
+  | "discord_account_logged_out";
+
+/**
+ * Why a grant cannot act: the Discord account it was bound to was logged out
+ * (or it predates accounts and had none). Agents see this text.
+ */
+const ACCOUNT_LOGGED_OUT_MESSAGE =
+  "The Discord account this connection used was logged out of discord-mcp, so the connection no longer works. Nothing was sent to Discord. Reconnect discord-mcp in your MCP client and pick a Discord account on the approval page.";
+
+/** True when the grant stopped working because its Discord account is gone. */
+const lostAccount = (grant: Pick<OAuthGrantRow, "discordAccountId" | "revokedAt" | "revokedReason">): boolean =>
+  grant.revokedReason === "discord_account_logged_out" || (grant.revokedAt === null && grant.discordAccountId === null);
 
 /** A connected client as the dashboard shows it. */
 export type ActiveGrant = {
   readonly id: string;
+  /** The stored Discord account the client acts as; null only for a grant whose account is gone. */
+  readonly discordAccountId: string | null;
   readonly clientName: string;
   readonly scopes: readonly McpScope[];
   readonly createdAt: Date;
@@ -79,6 +93,7 @@ const listActive = (db: Database, userId: string): Promise<Result<ActiveGrant[],
       const rows = await db
         .select({
           id: oauthGrant.id,
+          discordAccountId: oauthGrant.discordAccountId,
           clientName: oauthClient.clientName,
           scope: oauthGrant.scope,
           createdAt: oauthGrant.createdAt,
@@ -90,6 +105,7 @@ const listActive = (db: Database, userId: string): Promise<Result<ActiveGrant[],
         .orderBy(desc(oauthGrant.createdAt));
       return rows.map((row) => ({
         id: row.id,
+        discordAccountId: row.discordAccountId,
         clientName: row.clientName,
         scopes: McpScope.parse(row.scope).scopes,
         createdAt: new Date(row.createdAt),
@@ -100,6 +116,8 @@ const listActive = (db: Database, userId: string): Promise<Result<ActiveGrant[],
   });
 
 export const OAuthGrants = {
+  ACCOUNT_LOGGED_OUT_MESSAGE,
+  lostAccount,
   load,
   revoke,
   revokeOwned,

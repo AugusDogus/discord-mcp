@@ -45,7 +45,7 @@ export const serviceHarness = (responses: unknown[] = [], online = false) => {
     sessions,
     credentials: {
       token: "test-token-not-real",
-      record: { userId: "123", user, status: "active", presenceOnWrite: online, lastVerifiedAt: null },
+      record: { id: "test-account", userId: "123", user, status: "active", presenceOnWrite: online, lastVerifiedAt: null },
     },
     rejected: async () => Result.ok(null),
   });

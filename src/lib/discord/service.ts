@@ -38,7 +38,7 @@ const create = ({ rest, sessions, credentials, rejected }: DiscordServiceDeps) =
       : fail(operation, `Set confirm to true after reviewing the target and consequences. Nothing was changed.`);
   const write = async <T>(action: () => Promise<Result<T, DiscordApiError>>): Promise<Result<T, DiscordApiError>> => {
     if (!record.presenceOnWrite) return action();
-    const result = await sessions.withSession(record.userId, token, true, action);
+    const result = await sessions.withSession(record.id, token, true, action);
     if (result.isErr() && result.error.status === 401) {
       const marked = await rejected();
       if (marked.isErr())
@@ -57,7 +57,7 @@ const create = ({ rest, sessions, credentials, rejected }: DiscordServiceDeps) =
   const interactions = DiscordInteractions.create(
     rest,
     sessions,
-    { userId: record.userId, token, online: record.presenceOnWrite },
+    { accountId: record.id, token, online: record.presenceOnWrite },
     rejected,
   );
   return {

@@ -53,14 +53,14 @@ export function registerAccountTools(server: McpServer, ctx: DiscordMcpContext):
     "get_status",
     {
       title: "Get Discord status",
-      description: "Check the account and cached token health. If login is needed, open the discord-mcp dashboard.",
+      description: "Check this connection's Discord account and its cached token health. If login is needed, open the discord-mcp dashboard.",
       annotations: readAnnotations,
       scopeChallenge: ToolScope.challenge(ToolScope.read),
     },
     async () => {
       const denied = ToolScope.check(ctx, ToolScope.read);
       if (denied) return denied;
-      return ToolRunner.toToolResult(await (ctx.health ?? DiscordRuntime.health)(ctx.auth.userId));
+      return ToolRunner.toToolResult(await (ctx.health ?? DiscordRuntime.health)(ToolRunner.accountOf(ctx)));
     },
   );
 }

@@ -55,7 +55,7 @@ const rpc = async (
   const handler = createMcpHandler(() =>
     createDiscordMcpServer({
       ...extras,
-      auth: { userId: "123", clientId: "test-client", grantId: "test-grant", scopes },
+      auth: { userId: "123", clientId: "test-client", grantId: "test-grant", discordAccountId: "test-account", scopes },
     }),
   );
   return handler.fetch(
@@ -119,7 +119,7 @@ test("every tool enforces its read or write scope before loading account credent
         },
         health: async () => {
           loaded++;
-          return Result.ok({ kind: "login" });
+          return Result.ok({ kind: "login", account: null });
         },
       },
     );
@@ -173,10 +173,33 @@ test("get_status reports token health without exposing a token", async () => {
         ["discord:read"],
         "tools/call",
         { name: "get_status", arguments: {} },
-        { health: async () => Result.ok({ kind: "login" }) },
+        { health: async () => Result.ok({ kind: "login", account: null }) },
       ),
     ),
   ).result;
   expect(response.isError).toBeUndefined();
   expect(response.content[0]?.text).toContain('"login"');
+});
+test("tools and get_status act as the grant's Discord account, with no account argument", async () => {
+  const seen: unknown[] = [];
+  const h = serviceHarness([[{ id: "123", name: "Test" }]]);
+  const extras: Partial<DiscordMcpContext> = {
+    service: async (account) => {
+      seen.push(account);
+      return Result.ok(h.service);
+    },
+    health: async (account) => {
+      seen.push(account);
+      return Result.ok({ kind: "login", account: null });
+    },
+  };
+  const response = await json(await rpc(["discord:read"], "tools/list"));
+  const tools = z.object({ result: z.object({ tools: z.array(z.object({ name: z.string(), inputSchema: z.object({ properties: z.record(z.string(), z.unknown()).optional() }) })) }) }).parse(response).result.tools;
+  for (const tool of tools) expect(tool.inputSchema.properties ?? {}).not.toHaveProperty("account");
+  for (const name of ["discord_list_guilds", "get_status"])
+    expect(result.parse(await json(await rpc(["discord:read"], "tools/call", { name, arguments: {} }, extras))).result.isError).toBeUndefined();
+  expect(seen).toEqual([
+    { userId: "123", accountId: "test-account" },
+    { userId: "123", accountId: "test-account" },
+  ]);
 });
