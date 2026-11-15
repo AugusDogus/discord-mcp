@@ -19,7 +19,7 @@ docker compose up -d --build
 tailscale serve --bg --https=6443 http://127.0.0.1:6480
 ```
 
-Open that address. In Discord on your phone, go to **Settings > Scan QR Code**, scan, and confirm the login. Then connect your agent:
+Open that address. In Discord on your phone, go to **Settings > Scan QR Code**, scan, and confirm the login. If Discord asks for a captcha, solve it in the streamed browser on the page. The container includes Chromium and needs 1 GiB of shared memory (configured in Compose and the Unraid template). Then connect your agent:
 
 ```sh
 claude mcp add --transport http discord https://<machine>.<tailnet>.ts.net:6443/api/mcp
