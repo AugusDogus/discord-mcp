@@ -11,7 +11,8 @@
     "test": "bun test",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "bun src/lib/db/migrate.ts",
-    "db:auth-schema": "bunx auth@1.7.18 generate --config src/lib/db/auth-cli.config.ts --output src/lib/db/auth-schema.ts --yes"
+    "db:auth-schema": "bunx auth@1.7.18 generate --config src/lib/db/auth-cli.config.ts --output src/lib/db/auth-schema.ts --yes",
+    "build:login-extension": "bun docker/login-extension/build.ts"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",
@@ -29,6 +30,7 @@
   "devDependencies": {
     "@tailwindcss/turbopack": "^4",
     "@types/bun": "^1.4.4",
+    "@types/chrome": "^0.3.7",
     "@types/node": "^20",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19",
@@ -36,6 +38,7 @@
     "drizzle-kit": "^0.31.11",
     "eslint": "^9",
     "eslint-config-next": "16.4.5",
+    "jsqr": "^1.4.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   },

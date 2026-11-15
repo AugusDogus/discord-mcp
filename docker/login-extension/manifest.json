@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "discord-mcp login",
+  "version": "1.0.0",
+  "description": "Reports this container's Discord login to its owner. No page automation or captcha bypass.",
+  "host_permissions": ["http://127.0.0.1:3100/*"],
+  "background": { "service_worker": "service-worker.js" },
+  "content_scripts": [{
+    "matches": ["https://discord.com/login*", "https://discord.com/channels/*"],
+    "js": ["content.js"],
+    "run_at": "document_idle",
+    "all_frames": false,
+    "world": "ISOLATED"
+  }]
+}
