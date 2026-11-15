@@ -9,7 +9,7 @@
   Self-hosted in one Docker container, reachable only over your tailnet.
 </p>
 
-DEMO_VIDEO_URL
+https://github.com/user-attachments/assets/8f9c71f5-aa1e-487e-b191-5146ff0719c0
 
 ## Quick start
 
