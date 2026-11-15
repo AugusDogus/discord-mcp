@@ -1,3 +1,7 @@
+import { registerAccountTools } from "./account-tools";
+import { registerMessagesTools } from "./messages-tools";
+import { registerInteractionsTools } from "./interactions-tools";
+import { registerGuildsTools } from "./guilds-tools";
 import { McpServer } from "@modelcontextprotocol/server";
 import type { DiscordMcpContext, DiscordToolRegistrar } from "./context";
 
@@ -8,7 +12,7 @@ const instructions = [
   "Call get_status first. If the account is not logged in, ask the user to log in from the discord-mcp dashboard.",
 ].join("\n");
 
-const registrars: readonly DiscordToolRegistrar[] = [];
+const registrars: readonly DiscordToolRegistrar[] = [registerAccountTools, registerMessagesTools, registerInteractionsTools, registerGuildsTools];
 
 /**
  * Builds a fresh MCP server bound to one authenticated grant. Called once per

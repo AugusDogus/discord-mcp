@@ -1,3 +1,6 @@
+import type { Result } from "better-result";
+import type { DiscordService } from "@/lib/discord/service";
+import type { AccountHealth } from "@/lib/discord/account-health";
 import type { McpServer } from "@modelcontextprotocol/server";
 import type { McpAuth } from "@/lib/oauth";
 
@@ -8,6 +11,8 @@ import type { McpAuth } from "@/lib/oauth";
  */
 export type DiscordMcpContext = {
   readonly auth: McpAuth;
+  readonly service?: (userId: string) => Promise<Result<DiscordService, { readonly message: string }>>;
+  readonly health?: (userId: string) => Promise<Result<AccountHealth, { readonly message: string }>>;
 };
 
 /** Registers tools on a per-request server instance. */
