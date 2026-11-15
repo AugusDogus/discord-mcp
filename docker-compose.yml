@@ -1,0 +1,13 @@
+services:
+  discord-mcp:
+    image: discord-mcp:local
+    build: .
+    ports:
+      - "127.0.0.1:${DISCORD_MCP_PORT:-6480}:3000"
+    environment:
+      DISCORD_MCP_URL: ${DISCORD_MCP_URL:?set DISCORD_MCP_URL in .env}
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+    volumes:
+      - ${DISCORD_MCP_DATA:-./data}:/data
+    restart: unless-stopped
