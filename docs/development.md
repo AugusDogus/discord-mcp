@@ -1,6 +1,6 @@
 # Development
 
-Requires Bun 1.4.4 and Node 22 for the container startup bundles.
+Requires Bun 1.4.4. The app runs on Bun, including `bun run dev` and the Docker image: Discord's WebSocket gateways refuse connections from Node, so the QR login fails there (see `src/lib/discord/bun-websocket.ts`).
 
 ```sh
 bun install --frozen-lockfile

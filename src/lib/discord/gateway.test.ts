@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { Result } from "better-result";
+import { BunWebSocketUnavailableError } from "./bun-websocket";
 import { DiscordGateway, type GatewaySocketEvents } from "./gateway";
 
 const harness = () => {
@@ -7,14 +9,14 @@ const harness = () => {
   let closed = 0;
   const connect = DiscordGateway.connectWith((handlers) => {
     events = handlers;
-    return {
+    return Result.ok({
       send: (data) => {
         sent.push(JSON.parse(data));
       },
       close: () => {
         closed++;
       },
-    };
+    });
   }, 100);
   const emit = (data: unknown) => events?.message(JSON.stringify(data));
   return { connect, emit, sent, closed: () => closed, close: (code: number) => events?.closed(code) };
@@ -54,4 +56,13 @@ test("READY before the identify handshake cannot create an authenticated session
   const connected = await result;
   if (connected.isOk()) connected.value.close();
   expect(connected.isErr()).toBe(true);
+});
+
+test("a gateway socket that cannot open is an error with its reason", async () => {
+  const connect = DiscordGateway.connectWith(
+    () => Result.err(new BunWebSocketUnavailableError({ message: "discord-mcp must run on Bun." })),
+    100,
+  );
+  const result = await connect("test-token-not-real", "invisible", new AbortController().signal);
+  expect(result.match({ ok: () => null, err: (e) => e.message })).toBe("discord-mcp must run on Bun.");
 });

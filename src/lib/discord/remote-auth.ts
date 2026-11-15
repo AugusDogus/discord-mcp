@@ -1,8 +1,8 @@
 import { constants, createHash, generateKeyPair, privateDecrypt, type KeyObject } from "node:crypto";
 import { Result, TaggedError } from "better-result";
-import WebSocket from "ws";
 import { z } from "zod";
 import { DiscordUser } from "./user";
+import { BunWebSocket } from "./bun-websocket";
 import { DiscordWebClient } from "./web-client";
 
 /**
@@ -86,7 +86,7 @@ export type OpenRemoteAuthSocket = (
   url: string,
   headers: Readonly<Record<string, string>>,
   events: RemoteAuthSocketEvents,
-) => RemoteAuthSocket;
+) => Result<RemoteAuthSocket, RemoteAuthConnectionError>;
 
 export type RemoteAuthDeps = {
   readonly openSocket: OpenRemoteAuthSocket;
@@ -359,7 +359,7 @@ const run = async (
       }
     };
 
-    connection.socket = deps.openSocket(
+    const opened = deps.openSocket(
       DiscordWebClient.remoteAuthGateway,
       { origin: DiscordWebClient.origin, "user-agent": DiscordWebClient.userAgent },
       {
@@ -397,26 +397,28 @@ const run = async (
         },
       },
     );
+    if (opened.isErr()) return finish(Result.err(opened.error));
+    connection.socket = opened.value;
     signal.addEventListener("abort", onAbort, { once: true });
   });
 };
 
-/** The production transport: a `ws` WebSocket (it can send Origin and User-Agent). */
+/** The production transport: Bun's WebSocket (./bun-websocket.ts explains why). */
 const openWebSocket: OpenRemoteAuthSocket = (url, headers, events) => {
-  const ws = new WebSocket(url, { headers: { ...headers } });
-  ws.on("message", (data) => events.onMessage(data.toString()));
-  ws.on("close", (code) => events.onClose(code));
-  // `close` always follows `error` in ws; the close handler decides.
-  ws.on("error", () => undefined);
-  return {
+  const opened = BunWebSocket.open(url, headers);
+  if (opened.isErr()) return Result.err(new RemoteAuthConnectionError({ closeCode: null, message: opened.error.message }));
+  const ws = opened.value;
+  ws.addEventListener("message", (event) => events.onMessage(BunWebSocket.text(event.data)));
+  // A failed connection fires `error`, then `close`; the close handler decides.
+  ws.addEventListener("close", (event) => events.onClose(event.code));
+  return Result.ok({
     send: (text) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(text);
     },
     close: () => {
-      if (ws.readyState === WebSocket.CONNECTING) ws.terminate();
-      else if (ws.readyState === WebSocket.OPEN) ws.close(1000);
+      if (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN) ws.close(1000);
     },
-  };
+  });
 };
 
 const liveDeps = (): RemoteAuthDeps => ({

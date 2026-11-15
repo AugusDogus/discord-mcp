@@ -1,6 +1,6 @@
 import { Result } from "better-result";
-import WebSocket from "ws";
 import { z } from "zod";
+import { BunWebSocket, type BunWebSocketUnavailableError } from "./bun-websocket";
 import { DiscordRest, type DiscordApiError } from "./rest";
 import { DiscordWebClient } from "./web-client";
 
@@ -16,7 +16,7 @@ export type GatewaySocketEvents = {
   readonly message: (text: string) => void;
   readonly closed: (code: number) => void;
 };
-export type GatewayOpenSocket = (events: GatewaySocketEvents) => GatewaySocket;
+export type GatewayOpenSocket = (events: GatewaySocketEvents) => Result<GatewaySocket, BunWebSocketUnavailableError>;
 export type GatewayConnect = (
   token: string,
   status: GatewayStatus,
@@ -70,7 +70,7 @@ const connectWith =
         return;
       }
       try {
-        socket = open({
+        const opened = open({
           closed: (code) =>
             fail(
               code === 4004
@@ -140,19 +140,28 @@ const connectWith =
             }
           },
         });
+        if (opened.isErr()) return fail(opened.error.message);
+        socket = opened.value;
       } catch {
         fail("Could not connect to Discord's interaction gateway. Try again later.");
       }
     });
 
+/** The production transport: Bun's WebSocket (./bun-websocket.ts explains why). */
 const liveSocket: GatewayOpenSocket = (events) => {
-  const socket = new WebSocket("wss://gateway.discord.gg/?v=9&encoding=json", {
-    headers: DiscordWebClient.browserHeaders(),
-    maxPayload: 16 * 1024 * 1024,
+  const opened = BunWebSocket.open("wss://gateway.discord.gg/?v=9&encoding=json", DiscordWebClient.browserHeaders());
+  if (opened.isErr()) return opened;
+  const socket = opened.value;
+  socket.addEventListener("message", (event) => events.message(BunWebSocket.text(event.data)));
+  // A failed connection fires `error`, then `close` with its code.
+  socket.addEventListener("close", (event) => events.closed(event.code));
+  return Result.ok({
+    send: (data) => {
+      if (socket.readyState === WebSocket.OPEN) socket.send(data);
+    },
+    close: () => {
+      if (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN) socket.close(1000);
+    },
   });
-  socket.on("message", (data) => events.message(data.toString()));
-  socket.on("close", (code) => events.closed(code));
-  socket.on("error", () => events.closed(1006));
-  return { send: (data) => socket.send(data), close: () => socket.terminate() };
 };
 export const DiscordGateway = { connectWith, connect: connectWith(liveSocket) } as const;

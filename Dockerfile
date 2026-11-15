@@ -11,7 +11,9 @@ RUN bun run build \
  && bun build src/lib/db/migrate.ts --target=node --format=esm --external @libsql/client --outfile .next/standalone/migrate.mjs \
  && bun build docker/prepare.ts --target=node --format=esm --outfile .next/standalone/prepare.mjs
 
-FROM node:22-bookworm-slim
+# Runs on Bun: Discord's gateways refuse WebSocket connections from Node
+# (src/lib/discord/bun-websocket.ts).
+FROM oven/bun:1.4.4-slim
 RUN apt-get update \
  && apt-get install -y --no-install-recommends gosu ca-certificates \
  && rm -rf /var/lib/apt/lists/*
@@ -28,5 +30,5 @@ COPY docker/entrypoint.sh docker/start.sh ./docker/
 VOLUME /data
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:3000/sign-in').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
+  CMD bun -e "fetch('http://127.0.0.1:3000/sign-in').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
 ENTRYPOINT ["/app/docker/entrypoint.sh"]

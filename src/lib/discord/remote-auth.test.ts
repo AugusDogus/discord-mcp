@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { RemoteAuth, type RemoteAuthProgress } from "./remote-auth";
+import { Result } from "better-result";
+import { RemoteAuth, RemoteAuthConnectionError, type RemoteAuthProgress } from "./remote-auth";
 import { DiscordApiFakes, FakeRemoteAuthGateway, type FetchHandler } from "./testing/fake-remote-auth";
 
 const TOKEN = "test-token-not-real";
@@ -155,5 +156,21 @@ describe("remote auth", () => {
     await garbage.handshake();
     await garbage.push({ op: "pending_ticket", encrypted_user_payload: Buffer.from("not rsa").toString("base64") });
     expect((await b.result).match({ ok: () => null, err: (e) => e })?._tag).toBe("RemoteAuthProtocolError");
+  });
+
+  test("a socket that cannot open ends the run with its reason, and nothing is sent", async () => {
+    const reason = "discord-mcp must run on Bun.";
+    const result = await RemoteAuth.run(
+      {
+        openSocket: () => Result.err(new RemoteAuthConnectionError({ closeCode: null, message: reason })),
+        fetch: async () => new Response(null, { status: 500 }),
+        now: () => 0,
+      },
+      { signal: new AbortController().signal, onProgress: () => undefined },
+    );
+    expect(result.match({ ok: () => null, err: (e) => e })).toMatchObject({
+      _tag: "RemoteAuthConnectionError",
+      message: reason,
+    });
   });
 });

@@ -1,3 +1,4 @@
+import { Result } from "better-result";
 /**
  * A scripted remote-auth gateway and Discord HTTP API for tests: it plays the
  * server side of src/lib/discord/remote-auth.ts with real RSA-OAEP under the
@@ -37,14 +38,14 @@ export class FakeRemoteAuthGateway {
         this.headers = headers;
         this.#events = events;
         queueMicrotask(this.#opened);
-        return {
+        return Result.ok({
           send: (text) => {
             this.sent.push(text);
           },
           close: () => {
             this.closedByClient = true;
           },
-        };
+        });
       },
     };
   }
