@@ -1,4 +1,4 @@
-import type { Result } from "better-result";
+import { Result } from "better-result";
 import { getDb } from "@/lib/db/client";
 import { DiscordAccountStore } from "./account-store";
 import {
@@ -8,6 +8,7 @@ import {
   type RemoteAuthProgress,
   type RemoteAuthRunOptions,
 } from "./remote-auth";
+import { DiscordAccountLease } from "./account-lease";
 import { DiscordUser } from "./user";
 
 /**
@@ -28,6 +29,7 @@ export type LoginSessionDeps = {
   readonly save: (
     userId: string,
     login: { readonly token: string; readonly user: DiscordUser },
+    signal: AbortSignal,
   ) => Promise<Result<unknown, { readonly _tag: string; readonly message: string }>>;
   /** Whether the user already has a usable login, so a late poll does not start a new QR. */
   readonly isLoggedIn: (userId: string) => Promise<boolean>;
@@ -104,7 +106,8 @@ export const createLoginSessions = (deps: LoginSessionDeps) => {
         case "aborted":
           return;
         case "loggedIn": {
-          const saved = await deps.save(userId, { token: outcome.token, user: outcome.user });
+          const saved = await deps.save(userId, { token: outcome.token, user: outcome.user }, signal);
+          if (signal.aborted) return;
           if (saved.isErr()) {
             console.error(`[discord:login] saving failed: ${saved.error._tag} user=${userId}`);
             return settle(userId, entry, { stage: "error", message: saved.error.message });
@@ -165,7 +168,10 @@ export type LoginSessions = ReturnType<typeof createLoginSessions>;
 
 const liveDeps = (): LoginSessionDeps => ({
   runAuth: (options) => RemoteAuth.run(RemoteAuth.liveDeps(), options),
-  save: (userId, login) => DiscordAccountStore.save(getDb(), userId, login),
+  save: (userId, login, signal) => DiscordAccountLease.run(userId, async (): Promise<Result<unknown, { readonly _tag: string; readonly message: string }>> => {
+    if (signal.aborted) return Result.err({ _tag: "LoginStopped", message: "The login was stopped before saving." });
+    return DiscordAccountStore.save(getDb(), userId, login);
+  }),
   isLoggedIn: async (userId) => {
     const credentials = await DiscordAccountStore.credentials(getDb(), userId);
     return credentials.isOk() && credentials.value !== null && credentials.value.record.status === "active";
