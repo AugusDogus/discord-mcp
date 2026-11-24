@@ -5,6 +5,7 @@ import { DiscordApiSchema as Api } from "./api-schema";
 import { DiscordGuildLayout, type GuildFolderInput } from "./guild-layout";
 import { DiscordGuilds } from "./guilds";
 import { DiscordInteractions } from "./interactions";
+import { DiscordPoll, type PollInput } from "./poll";
 import type { DiscordPresence } from "./presence";
 import { DiscordRest, type DiscordApiError } from "./rest";
 
@@ -21,6 +22,7 @@ export type MessageSearch = {
   limit?: number;
   sortOrder?: "asc" | "desc";
 };
+export type CreatePoll = PollInput & { readonly content?: string };
 export type SendMessage = { content?: string; replyToMessageId?: string; allowMentions?: boolean; silent?: boolean };
 export type DiscordServiceDeps = {
   readonly rest: DiscordRest;
@@ -52,6 +54,26 @@ const create = ({ rest, sessions, credentials, rejected }: DiscordServiceDeps) =
     return message.value.author.id === record.user.id
       ? message
       : fail("change own message", "This message belongs to another account. Nothing was changed.");
+  };
+  /** Every voter for one answer, 100 per request. */
+  const pollVoters = async (channelId: string, messageId: string, answerId: number) => {
+    const voters: { id: string; username: string; globalName: string | null }[] = [];
+    for (;;) {
+      const query = new URLSearchParams({ limit: "100" });
+      const last = voters.at(-1);
+      if (last) query.set("after", last.id);
+      const page = await rest.request(
+        "list poll voters",
+        `/channels/${channelId}/polls/${messageId}/answers/${answerId}`,
+        z.object({ users: z.array(Api.user) }),
+        { query },
+      );
+      if (page.isErr()) return page;
+      voters.push(
+        ...page.value.users.map((user) => ({ id: user.id, username: user.username, globalName: user.global_name ?? null })),
+      );
+      if (page.value.users.length < 100) return Result.ok(voters);
+    }
   };
   const listGuilds = () => DiscordGuilds.list(rest);
   const interactions = DiscordInteractions.create(
@@ -148,6 +170,56 @@ const create = ({ rest, sessions, credentials, rejected }: DiscordServiceDeps) =
               : {}),
             ...(input.silent ? { flags: 4096 } : {}),
           },
+        }),
+      );
+    },
+    createPoll: async (channelId: string, input: CreatePoll) => {
+      const sent = await write(() =>
+        rest.request("create poll", `/channels/${channelId}/messages`, Api.serializedMessage, {
+          method: "POST",
+          body: {
+            ...(input.content?.trim() ? { content: input.content } : {}),
+            allowed_mentions: { parse: [], replied_user: false },
+            poll: DiscordPoll.request(input),
+          },
+        }),
+      );
+      if (sent.isErr() || sent.value.poll !== null) return sent;
+      return fail(
+        "create poll",
+        `Discord saved message ${sent.value.id} without a poll. Check it in Discord (${sent.value.url}) and delete it before retrying.`,
+      );
+    },
+    getPollResults: async (channelId: string, messageId: string, includeVoters: boolean) => {
+      const found = await rest.request(
+        "read poll",
+        `/channels/${channelId}/messages/${messageId}`,
+        Api.serializedMessage,
+      );
+      if (found.isErr()) return found;
+      const { poll, url } = found.value;
+      if (poll === null) return fail("read poll results", "This message has no poll. Check the message ID.");
+      const answers = [];
+      for (const answer of poll.answers) {
+        if (!includeVoters) {
+          answers.push({ ...answer, voters: null });
+          continue;
+        }
+        const voters = await pollVoters(channelId, messageId, answer.answerId);
+        if (voters.isErr()) return voters;
+        answers.push({ ...answer, voters: voters.value });
+      }
+      return Result.ok({ messageId, url, ...poll, answers });
+    },
+    endPoll: async (channelId: string, messageId: string, confirm: boolean) => {
+      const denied = confirmed(confirm, "end poll");
+      if (denied) return denied;
+      const own = await ownMessage(channelId, messageId);
+      if (own.isErr()) return own;
+      if (own.value.poll === undefined) return fail("end poll", "This message has no poll. Nothing was changed.");
+      return write(() =>
+        rest.request("end poll", `/channels/${channelId}/polls/${messageId}/expire`, Api.serializedMessage, {
+          method: "POST",
         }),
       );
     },

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DiscordPoll } from "./poll";
 
 const id = z.string().regex(/^\d+$/);
 const user = z.object({
@@ -57,6 +58,7 @@ const message = z.object({
     .object({ message_id: id.optional(), channel_id: id.optional(), guild_id: id.optional() })
     .optional(),
   components: z.array(z.unknown()).default([]),
+  poll: DiscordPoll.schema.optional(),
 });
 
 const serializeMessage = (data: z.infer<typeof message>) => ({
@@ -94,6 +96,7 @@ const serializeMessage = (data: z.infer<typeof message>) => ({
       }
     : null,
   components: data.components,
+  poll: data.poll ? DiscordPoll.serialize(data.poll) : null,
 });
 export const DiscordApiSchema = {
   id,
