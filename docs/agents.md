@@ -62,9 +62,12 @@ Call `get_status` first. It reports the connection's own Discord account. It ret
 | `discord_fetch_messages` | read | Up to 100 messages, with before/after cursors |
 | `discord_fetch_message` | read | One message |
 | `discord_search_messages` | read | Discord server-side search with author, content and other filters |
+| `discord_get_poll_results` | read | Vote counts per answer of a poll, optionally with each answer's voters |
 | `discord_get_guild_layout` | read | Ordered guild folders |
 | `discord_open_dm` | write | Open or retrieve a DM |
 | `discord_send_message` | write | Send or reply, optionally silently |
+| `discord_create_poll` | write | Post a native poll: question (up to 300 characters), 1 to 10 answers (up to 55 characters, optional emoji), 1 to 768 hours, single or multiple choice, optional message text |
+| `discord_end_poll` | write | End your own poll early; requires `confirm: true` |
 | `discord_edit_own_message` | write | Edit a message sent by your account |
 | `discord_delete_own_message` | write | Permanently delete your own message; requires `confirm: true` |
 | `discord_add_reaction` | write | React as your account |

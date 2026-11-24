@@ -33,7 +33,7 @@ claude mcp add --transport http discord https://<machine>.<tailnet>.ts.net:6443/
 ## Docs
 
 - [Self-hosting](docs/self-hosting.md): Docker, Unraid, the login browser and captchas, settings, backups
-- [Agents](docs/agents.md): clients, several Discord accounts, tools, scopes, presence
+- [Agents](docs/agents.md): clients, several Discord accounts, tools (messages, reactions, threads, polls and more), scopes, presence
 - [Security](docs/security.md): server-held keys, account risk, logout
 - [Development](docs/development.md): setup, tests, layout, the demo video, verification limits
 
