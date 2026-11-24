@@ -18,6 +18,9 @@ const requests: Readonly<Record<string, Record<string, unknown>>> = {
   discord_fetch_message: { channelId: "123", messageId: "456" },
   discord_search_messages: { channelId: "123" },
   discord_send_message: { channelId: "123", content: "test" },
+  discord_create_poll: { channelId: "123", question: "test", answers: [{ text: "test" }] },
+  discord_get_poll_results: { channelId: "123", messageId: "456" },
+  discord_end_poll: { channelId: "123", messageId: "456", confirm: false },
   discord_edit_own_message: { channelId: "123", messageId: "456", content: "test" },
   discord_delete_own_message: { channelId: "123", messageId: "456", confirm: false },
   discord_add_reaction: { channelId: "123", messageId: "456", emoji: "👍" },
@@ -42,6 +45,7 @@ const reads = new Set([
   "discord_fetch_messages",
   "discord_fetch_message",
   "discord_search_messages",
+  "discord_get_poll_results",
   "discord_get_guild_layout",
   "get_status",
 ]);
@@ -98,7 +102,7 @@ test("HTTP MCP exposes every source tool and get_status, preserving annotations 
   for (const tool of tools) {
     expect(tool.annotations.readOnlyHint).toBe(reads.has(tool.name));
     expect(tool.annotations.destructiveHint).toBe(
-      ["discord_delete_own_message", "discord_leave_guild", "discord_replace_guild_layout"].includes(tool.name),
+      ["discord_delete_own_message", "discord_end_poll", "discord_leave_guild", "discord_replace_guild_layout"].includes(tool.name),
     );
     expect(tool.inputSchema.properties).not.toHaveProperty("attachmentPaths");
   }
@@ -147,6 +151,7 @@ test("HTTP scope challenges return 403; destructive calls with confirm false mak
   const h = serviceHarness();
   for (const name of [
     "discord_delete_own_message",
+    "discord_end_poll",
     "discord_leave_guild",
     "discord_replace_guild_layout",
     "discord_join_guild",
